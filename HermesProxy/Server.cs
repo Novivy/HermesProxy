@@ -29,7 +29,7 @@ namespace HermesProxy
             try
             {
                 if (!args.DisableVersionCheck)
-                    CheckForUpdate().WaitAsync(TimeSpan.FromSeconds(15)).Wait(); // Max wait 15 sec, maybe there is some wierd network error
+                    CheckForUpdate().WaitAsync(TimeSpan.FromSeconds(5)).Wait(); // Max wait 5 sec, maybe there is some wierd network error
             }
             catch { /* ignore */ }
 #endif
@@ -130,7 +130,8 @@ namespace HermesProxy
 
         private static async Task CheckForUpdate()
         {
-            const string hermesGitHubRepo = "WowLegacyCore/HermesProxy";
+            //const string hermesGitHubRepo = "WowLegacyCore/HermesProxy"; 
+             const string hermesGitHubRepo = "Novivy/HermesProxy";
 
             try
             {
@@ -157,7 +158,7 @@ namespace HermesProxy
                     Console.WriteLine("------------------------");
                     Console.ForegroundColor = ConsoleColor.Yellow;
                     Console.WriteLine($"HermesProxy update available v{GitVersionInformation.Major}.{GitVersionInformation.Minor} => {parsedJson!["tag_name"]} ({commitDate:yyyy-MM-dd})");
-                    Console.WriteLine("Please download new version from https://github.com/WowLegacyCore/HermesProxy/releases/latest");
+                    Console.WriteLine($"Please download new version from https://github.com/{hermesGitHubRepo}/releases/latest");
                     Console.ResetColor();
                     Console.WriteLine("------------------------");
                     Console.WriteLine();
