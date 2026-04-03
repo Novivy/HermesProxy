@@ -48,40 +48,29 @@ jobs:
         if: matrix.os != 'windows'
         run: chmod a+x publish/HermesProxy
 
-      - name: Make a tar.gz with permissions out of it (for Linux)
+      - name: Make a zip (Windows)
+        if: matrix.os == 'windows'
+        run: |
+          mv publish HermesProxy-${{ matrix.os }}-${{ runner.arch }}-${{ github.sha }}
+          Compress-Archive -Path HermesProxy-${{ matrix.os }}-${{ runner.arch }}-${{ github.sha }} -DestinationPath HermesProxy-${{ matrix.os }}-${{ runner.arch }}-${{ github.sha }}.zip
+
+      - name: Make a tar.gz (Linux)
         if: matrix.os == 'ubuntu'
         run: |
           mv publish HermesProxy-${{ matrix.os }}-${{ runner.arch }}-${{ github.sha }}
           tar -czvf HermesProxy-${{ matrix.os }}-${{ runner.arch }}-${{ github.sha }}.tar.gz HermesProxy-${{ matrix.os }}-${{ runner.arch }}-${{ github.sha }}
 
-      - name: Make a zip with permissions out of it (for MacOS)
+      - name: Make a zip (MacOS)
         if: matrix.os == 'macos'
         run: |
           mv publish HermesProxy-${{ matrix.os }}-universal-${{ github.sha }}
           zip -vr HermesProxy-${{ matrix.os }}-universal-${{ github.sha }}.zip HermesProxy-${{ matrix.os }}-universal-${{ github.sha }}
 
-      - name: Upload build artifact (Windows)
-        if: matrix.os == 'windows'
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HermesProxy-${{ matrix.os }}-${{ runner.arch }}-${{ github.sha }}
-          path: publish
-          if-no-files-found: error
-
-      - name: Upload build artifact (Linux)
-        if: matrix.os == 'ubuntu'
-        uses: actions/upload-artifact@v4
-        with:
-          name: HermesProxy-${{ matrix.os }}-${{ runner.arch }}-${{ github.sha }}
-          path: HermesProxy-${{ matrix.os }}-${{ runner.arch }}-${{ github.sha }}.*
-          if-no-files-found: error
-
-      - name: Upload build artifact (MacOS)
-        if: matrix.os == 'macos'
-        uses: actions/upload-artifact@v4
-        with:
-          name: HermesProxy-${{ matrix.os }}-universal-${{ github.sha }}
-          path: HermesProxy-${{ matrix.os }}-universal-${{ github.sha }}.*
+          name: HermesProxy-${{ matrix.os == 'macos' && format('{0}-universal', matrix.os) || format('{0}-{1}', matrix.os, runner.arch) }}-${{ github.sha }}
+          path: "HermesProxy-*-${{ github.sha }}.*"
           if-no-files-found: error
 
   release:
@@ -97,10 +86,17 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          merge-multiple: false
+          merge-multiple: true
+
+      - name: Rename artifacts to use tag name
+        run: |
+          for f in artifacts/HermesProxy-*; do
+            newname=$(echo "$f" | sed "s/-${{ github.sha }}//")
+            mv "$f" "$newname"
+          done
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*
+          files: artifacts/HermesProxy-*
           generate_release_notes: true
