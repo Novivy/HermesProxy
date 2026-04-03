@@ -379,6 +379,7 @@ namespace HermesProxy.World.Client
                     HandleAuthResponse(packet);
                     break;
                 case Opcode.SMSG_ADDON_INFO:
+                case Opcode.SMSG_WARDEN_DATA:
                     break; // don't need to handle
                 default:
                     if (_packetHandlers.ContainsKey(universalOpcode))

@@ -265,12 +265,12 @@ namespace HermesProxy.World
         }
         static WowGuid128 TransportCreate(ulong counter, uint entry)
         {
-            return new WowGuid128((ulong)HighGuidType703.Transport << 58 | (counter << 38) | entry, 0);
+            return new WowGuid128((ulong)HighGuidType703.Transport << 58 | ((counter & 0xFFFFF) << 38) | entry, 0);
         }
         static WowGuid128 RealmSpecificCreate(HighGuidType703 type, ulong counter)
         {
             if (type == HighGuidType703.Transport)
-                return new WowGuid128((ulong)type << 58 | (counter << 38), 0);
+                return new WowGuid128((ulong)type << 58 | ((counter & 0xFFFFF) << 38), 0); 
             else
                 return new WowGuid128((ulong)type << 58 | (ulong)1 /*realmId*/ << 42, counter);
         }
