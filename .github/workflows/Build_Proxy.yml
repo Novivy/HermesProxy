@@ -14,12 +14,12 @@ jobs:
 
     steps:
       - name: Checkout repository content
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Setup .NET Core SDK
-        uses: actions/setup-dotnet@v2
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -60,7 +60,7 @@ jobs:
 
       - name: Upload build artifact (Windows)
         if: matrix.os == 'windows'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: HermesProxy-${{ matrix.os }}-${{ runner.arch }}-${{ github.sha }}
           path: publish
@@ -68,7 +68,7 @@ jobs:
 
       - name: Upload build artifact (Linux)
         if: matrix.os == 'ubuntu'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: HermesProxy-${{ matrix.os }}-${{ runner.arch }}-${{ github.sha }}
           path: HermesProxy-${{ matrix.os }}-${{ runner.arch }}-${{ github.sha }}.*
@@ -76,7 +76,7 @@ jobs:
 
       - name: Upload build artifact (MacOS)
         if: matrix.os == 'macos'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: HermesProxy-${{ matrix.os }}-universal-${{ github.sha }}
           path: HermesProxy-${{ matrix.os }}-universal-${{ github.sha }}.*
