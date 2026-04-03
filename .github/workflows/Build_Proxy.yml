@@ -1,6 +1,8 @@
 name: Build Proxy
 
-on: ['push']
+on:
+  push:
+  workflow_dispatch:
 
 env:
   DOTNET_VERSION: '6.0.x'
@@ -81,3 +83,24 @@ jobs:
           name: HermesProxy-${{ matrix.os }}-universal-${{ github.sha }}
           path: HermesProxy-${{ matrix.os }}-universal-${{ github.sha }}.*
           if-no-files-found: error
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: false
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
