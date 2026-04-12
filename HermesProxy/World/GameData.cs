@@ -2356,22 +2356,27 @@ namespace HermesProxy.World
 
                     string[] fields = csvParser.ReadFields();
 
-                    // RecordId in SpellReagents equals the spell ID (1:1 mapping in TBC Classic)
-                    uint spellId = UInt32.Parse(fields[0]);
+                    // SpellReagents has its own auto-increment row ID (not the spell ID).
+                    // SpellID is a separate foreign-key field written in the content.
+                    // Use wow.tools SpellReagents export to find the correct RowId for a spell.
+                    uint rowId = UInt32.Parse(fields[0]);
+                    uint spellId = UInt32.Parse(fields[1]);
                     int[] reagents = new int[8];
                     ushort[] reagentCounts = new ushort[8];
                     for (int i = 0; i < 8; i++)
-                        reagents[i] = Int32.Parse(fields[1 + i]);
+                        reagents[i] = Int32.Parse(fields[2 + i]);
                     for (int i = 0; i < 8; i++)
-                        reagentCounts[i] = UInt16.Parse(fields[9 + i]);
+                        reagentCounts[i] = UInt16.Parse(fields[10 + i]);
 
                     HotfixRecord record = new HotfixRecord();
                     record.TableHash = DB2Hash.SpellReagents;
                     record.HotfixId = HotfixSpellReagentsBegin + counter;
                     record.UniqueId = record.HotfixId;
-                    record.RecordId = spellId;
+                    record.RecordId = rowId;
                     record.Status = HotfixStatus.Valid;
-                    record.HotfixContent.WriteInt32((int)spellId);  // SpellID field
+                    // Content layout matches DB2 column order (excluding the primary key):
+                    // SpellID, Reagent[8], ReagentCount[8]
+                    record.HotfixContent.WriteInt32((int)spellId);
                     for (int i = 0; i < 8; i++)
                         record.HotfixContent.WriteInt32(reagents[i]);
                     for (int i = 0; i < 8; i++)
