@@ -1661,6 +1661,7 @@ namespace HermesProxy.World
         public const uint HotfixCreatureDisplayInfoBegin = 270000;
         public const uint HotfixCreatureDisplayInfoExtraBegin = 280000;
         public const uint HotfixCreatureDisplayInfoOptionBegin = 290000;
+        public const uint HotfixSpellReagentsBegin = 300000;
         public static Dictionary<uint, HotfixRecord> Hotfixes = new Dictionary<uint, HotfixRecord>();
         public static void LoadHotfixes()
         {
@@ -1682,6 +1683,7 @@ namespace HermesProxy.World
             LoadCreatureDisplayInfoHotfixes();
             LoadCreatureDisplayInfoExtraHotfixes();
             LoadCreatureDisplayInfoOptionHotfixes();
+            LoadSpellReagentsHotfixes();
         }
         
         public static void LoadAreaTriggerHotfixes()
@@ -2329,6 +2331,51 @@ namespace HermesProxy.World
                     record.HotfixContent.WriteUInt16(casterUnitConditionId);
                     record.HotfixContent.WriteUInt32(casterPlayerConditionId);
                     record.HotfixContent.WriteUInt32(spellId);
+                    Hotfixes.Add(record.HotfixId, record);
+                }
+            }
+        }
+        public static void LoadSpellReagentsHotfixes()
+        {
+            var path = Path.Combine("CSV", "Hotfix", $"SpellReagents{ModernVersion.ExpansionVersion}.csv");
+            if (!File.Exists(path))
+                return;
+            using (TextFieldParser csvParser = new TextFieldParser(path))
+            {
+                csvParser.CommentTokens = new string[] { "#" };
+                csvParser.SetDelimiters(new string[] { "," });
+                csvParser.HasFieldsEnclosedInQuotes = false;
+
+                // Skip the row with the column names
+                csvParser.ReadLine();
+
+                uint counter = 0;
+                while (!csvParser.EndOfData)
+                {
+                    counter++;
+
+                    string[] fields = csvParser.ReadFields();
+
+                    // RecordId in SpellReagents equals the spell ID (1:1 mapping in TBC Classic)
+                    uint spellId = UInt32.Parse(fields[0]);
+                    int[] reagents = new int[8];
+                    ushort[] reagentCounts = new ushort[8];
+                    for (int i = 0; i < 8; i++)
+                        reagents[i] = Int32.Parse(fields[1 + i]);
+                    for (int i = 0; i < 8; i++)
+                        reagentCounts[i] = UInt16.Parse(fields[9 + i]);
+
+                    HotfixRecord record = new HotfixRecord();
+                    record.TableHash = DB2Hash.SpellReagents;
+                    record.HotfixId = HotfixSpellReagentsBegin + counter;
+                    record.UniqueId = record.HotfixId;
+                    record.RecordId = spellId;
+                    record.Status = HotfixStatus.Valid;
+                    record.HotfixContent.WriteInt32((int)spellId);  // SpellID field
+                    for (int i = 0; i < 8; i++)
+                        record.HotfixContent.WriteInt32(reagents[i]);
+                    for (int i = 0; i < 8; i++)
+                        record.HotfixContent.WriteUInt16(reagentCounts[i]);
                     Hotfixes.Add(record.HotfixId, record);
                 }
             }
