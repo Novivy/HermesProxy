@@ -443,6 +443,23 @@ namespace HermesProxy.World
             return false;
         }
 
+        /// Returns true if the given FactionTemplate.dbc ID corresponds to an Alliance player race.
+        /// Vanilla ChrRaces.dbc FactionID values for player races: 1=Human,3=Dwarf,4=NightElf,7=Gnome (Alliance)
+        ///   2=Orc,5=Undead,6=Tauren,8=Troll (Horde).
+        /// Used to derive ArenaFaction when a cross-faction server overrides UNIT_FIELD_FACTIONTEMPLATE.
+        public static bool IsAllianceFactionTemplate(int factionTemplate)
+        {
+            switch (factionTemplate)
+            {
+                case 1:  // Human
+                case 3:  // Dwarf
+                case 4:  // Night Elf
+                case 7:  // Gnome
+                    return true;
+            }
+            return false;
+        }
+
         /// returns 0 when unknown
         public static int GetFactionByRace(Race race)
         {

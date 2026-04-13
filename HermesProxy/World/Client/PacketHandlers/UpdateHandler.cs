@@ -1499,9 +1499,15 @@ namespace HermesProxy.World.Client
                     updateData.UnitData.Level = updates[UNIT_FIELD_LEVEL].Int32Value;
                 }
                 int UNIT_FIELD_FACTIONTEMPLATE = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_FACTIONTEMPLATE);
-                if (UNIT_FIELD_FACTIONTEMPLATE >= 0 && updateMaskArray[UNIT_FIELD_FACTIONTEMPLATE])
+                bool factionTemplateUpdated = UNIT_FIELD_FACTIONTEMPLATE >= 0 && updateMaskArray[UNIT_FIELD_FACTIONTEMPLATE];
+                if (factionTemplateUpdated)
                 {
                     updateData.UnitData.FactionTemplate = updates[UNIT_FIELD_FACTIONTEMPLATE].Int32Value;
+                    // Derive ArenaFaction from the (potentially overridden) faction template so that
+                    // cross-faction players (e.g. Orc on Alliance team with Human faction template)
+                    // show as friendly and appear in the correct BG team on the 1.14 client.
+                    if (objectType != ObjectType.Unit)
+                        updateData.PlayerData.ArenaFaction = (byte)(GameData.IsAllianceFactionTemplate(updates[UNIT_FIELD_FACTIONTEMPLATE].Int32Value) ? 1 : 0);
                 }
 
                 int UNIT_FIELD_BYTES_0 = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_BYTES_0);
@@ -1517,7 +1523,9 @@ namespace HermesProxy.World.Client
 
                     if (objectType == ObjectType.Unit)
                         GetSession().GameState.StoreCreatureClass(guid.GetEntry(), (Class)updateData.UnitData.ClassId);
-                    else
+                    else if (!factionTemplateUpdated)
+                        // Only fall back to race-based ArenaFaction when faction template wasn't in this update.
+                        // If faction template was already processed above, it takes priority over race.
                         updateData.PlayerData.ArenaFaction = (byte)(GameData.IsAllianceRace((Race)updateData.UnitData.RaceId) ? 1 : 0);
                 }
 
