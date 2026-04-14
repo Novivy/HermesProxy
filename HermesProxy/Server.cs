@@ -158,7 +158,7 @@ namespace HermesProxy
                     Console.WriteLine("------------------------");
                     Console.ForegroundColor = ConsoleColor.Yellow;
                     Console.WriteLine($"HermesProxy update available v{GitVersionInformation.Major}.{GitVersionInformation.Minor} => {parsedJson!["tag_name"]} ({commitDate:yyyy-MM-dd})");
-                    Console.WriteLine($"Please download new version from https://github.com/{hermesGitHubRepo}/releases/latest");
+                    Console.WriteLine($"Please download new version from https://wow-hc.com/hermesproxy");
                     Console.ResetColor();
                     Console.WriteLine("------------------------");
                     Console.WriteLine();

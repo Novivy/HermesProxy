@@ -1066,6 +1066,7 @@ namespace HermesProxy.World.Enums.V2_4_3_8606
         UMSG_DELETE_GUILD_CHARTER                             = 0x2C0,
         UMSG_UPDATE_ARENA_TEAM_OBSOLETE                       = 0x34A,
         UMSG_UPDATE_GROUP_MEMBERS                             = 0x080,
-        UMSG_UPDATE_GUILD                                     = 0x094
+        UMSG_UPDATE_GUILD                                     = 0x094,
+        CMSG_HERMES_VERSION                                   = 0x424
     }
 }

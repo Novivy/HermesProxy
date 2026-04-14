@@ -143,6 +143,11 @@ namespace HermesProxy.World.Server
             WorldPacket packet = new WorldPacket(Opcode.CMSG_PLAYER_LOGIN);
             packet.WriteGuid(playerLogin.Guid.To64());
             SendPacketToServer(packet);
+
+            // Send HermesProxy version to the server via dedicated custom opcode
+            WorldPacket versionPacket = new WorldPacket(Opcode.CMSG_HERMES_VERSION);
+            versionPacket.WriteCString(GitVersionInformation.MajorMinorPatch);
+            SendPacketToServer(versionPacket);
         }
 
         [PacketHandler(Opcode.CMSG_LOGOUT_REQUEST)]

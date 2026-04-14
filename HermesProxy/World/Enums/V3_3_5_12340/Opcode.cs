@@ -1318,6 +1318,7 @@ namespace HermesProxy.World.Enums.V3_3_5_12340
         UMSG_DELETE_GUILD_CHARTER                             = 0x2C0,
         UMSG_UPDATE_GROUP_INFO                                = 0x4FE,
         UMSG_UPDATE_GROUP_MEMBERS                             = 0x080,
-        UMSG_UPDATE_GUILD                                     = 0x094
+        UMSG_UPDATE_GUILD                                     = 0x094,
+        CMSG_HERMES_VERSION                                   = 0x424
     }
 }
