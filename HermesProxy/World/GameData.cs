@@ -196,6 +196,16 @@ namespace HermesProxy.World
             return 0;
         }
 
+        // Returns the display ID to use for 1.14 client appearance hotfixes.
+        // Prefers the server's display ID; falls back to the CSV mapping if the server ID is unknown to the client.
+        public static uint ResolveItemDisplayIdForClient(ItemTemplate item)
+        {
+            if (GetItemIconFileDataIdByDisplayId(item.DisplayID) != 0)
+                return item.DisplayID;
+            uint csvDisplayId = GetItemDisplayId(item.Entry);
+            return csvDisplayId != 0 ? csvDisplayId : item.DisplayID;
+        }
+
         public static ItemModifiedAppearance GetItemModifiedAppearanceByDisplayId(uint displayId)
         {
             ItemAppearance appearance = GetItemAppearanceByDisplayId(displayId);
@@ -3687,7 +3697,9 @@ namespace HermesProxy.World
 
         public static Server.Packets.HotFixMessage? GenerateItemAppearanceUpdateIfNeeded(ItemTemplate item)
         {
-            ItemAppearance appearance = GetItemAppearanceByDisplayId(item.DisplayID);
+            uint displayId = ResolveItemDisplayIdForClient(item);
+
+            ItemAppearance appearance = GetItemAppearanceByDisplayId(displayId);
             if (appearance != null)
             {
                 // never can happen, should not edit existing ItemAppearance as can affect other items
@@ -3719,19 +3731,21 @@ namespace HermesProxy.World
 
         public static Server.Packets.HotFixMessage? GenerateItemModifiedAppearanceUpdateIfNeeded(ItemTemplate item)
         {
+            uint displayId = ResolveItemDisplayIdForClient(item);
+
             ItemModifiedAppearance modAppearance = GetItemModifiedAppearanceByItemId(item.Entry);
             if (modAppearance != null)
             {
                 ItemAppearance appearance;
                 ItemAppearanceStore.TryGetValue((uint)modAppearance.ItemAppearanceID, out appearance);
-                if (appearance == null || appearance.ItemDisplayInfoID != item.DisplayID)
+                if (appearance == null || appearance.ItemDisplayInfoID != (int)displayId)
                 {
                     Log.Print(LogType.Storage, $"ItemModifiedAppearance #{modAppearance.Id} for item #{item.Entry} needs to be updated.");
-                    
+
                     if (appearance == null)
                         Log.Print(LogType.Storage, $"ItemAppearance #{modAppearance.ItemAppearanceID} missing.");
-                    else if (appearance.ItemDisplayInfoID != item.DisplayID)
-                        Log.Print(LogType.Storage, $"DisplayID {appearance.ItemDisplayInfoID} vs {item.DisplayID}");
+                    else if (appearance.ItemDisplayInfoID != (int)displayId)
+                        Log.Print(LogType.Storage, $"DisplayID {appearance.ItemDisplayInfoID} vs {displayId}");
 
                     // something is different so update current data
                     UpdateItemModifiedAppearanceRecord(modAppearance, item);
@@ -4023,10 +4037,11 @@ namespace HermesProxy.World
 
         public static void UpdateItemAppearanceRecord(ItemAppearance appearance, ItemTemplate item)
         {
-            int fileDataId = (int)GetItemIconFileDataIdByDisplayId(item.DisplayID);
+            uint displayId = ResolveItemDisplayIdForClient(item);
+            int fileDataId = (int)GetItemIconFileDataIdByDisplayId(displayId);
 
             appearance.DisplayType = 11; // todo find out
-            appearance.ItemDisplayInfoID = (int)item.DisplayID;
+            appearance.ItemDisplayInfoID = (int)displayId;
             appearance.DefaultIconFileDataID = fileDataId;
             appearance.UiOrder = 0;
 
@@ -4054,10 +4069,11 @@ namespace HermesProxy.World
 
         public static void UpdateItemModifiedAppearanceRecord(ItemModifiedAppearance modAppearance, ItemTemplate item)
         {
-            ItemAppearance appearance = GetItemAppearanceByDisplayId(item.DisplayID);
+            uint displayId = ResolveItemDisplayIdForClient(item);
+            ItemAppearance appearance = GetItemAppearanceByDisplayId(displayId);
             if (appearance == null) // should not happen
             {
-                Log.Print(LogType.Error, $"ItemModifiedAppearance #{modAppearance.Id} update failed: no ItemAppearance for DisplayID #{item.DisplayID}");
+                Log.Print(LogType.Error, $"ItemModifiedAppearance #{modAppearance.Id} update failed: no ItemAppearance for DisplayID #{displayId}");
                 return;
             }    
 
