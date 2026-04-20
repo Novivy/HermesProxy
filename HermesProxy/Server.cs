@@ -90,7 +90,12 @@ namespace HermesProxy
             // LoginServiceManager holds our external IPs so that other player can connect to our Hermes instance
             LoginServiceManager.Instance.Initialize();
 
-            Log.PrintAlways("Loading, please wait...");
+            Log.PrintAlways($"Starting Hermes Proxy...");         
+            Log.PrintAlways($"Build: {GetVersionInformation()}");    
+            Log.PrintAlways($"Client: {Settings.ClientBuild}");    
+            Log.PrintAlways($"Realmlist: {Settings.ServerAddress}");    
+
+  
 
             // 1. Start the listener for binary bnet RPC service connections
             var bnetSocketServer = StartServer<BnetTcpSession>(new IPEndPoint(bindIp, Settings.BNetPort));
@@ -104,7 +109,7 @@ namespace HermesProxy
             // 4. Start the listener for world connections
             var worldSocketServer = StartServer<WorldSocket>(new IPEndPoint(bindIp, Settings.InstancePort));
 
-            Log.PrintAlways("HermesProxy is ready!");
+            Log.PrintAlways("HermesProxy is ready!", ConsoleColor.Green);
 
             while (restSocketServer.IsListening || bnetSocketServer.IsListening || realmSocketServer.IsListening || worldSocketServer.IsListening)
             {

@@ -88,9 +88,23 @@ namespace Framework.Logging
             Console.WriteLine($"| {text}");
         }
 
-        public static void PrintAlways(string text)
+        static readonly Dictionary<ConsoleColor, string> AnsiColor = new()
         {
-            Console.WriteLine(text);
+            { ConsoleColor.Green,     "\u001b[92m" },
+            { ConsoleColor.DarkGreen, "\u001b[32m" },
+            { ConsoleColor.Red,       "\u001b[91m" },
+            { ConsoleColor.Yellow,    "\u001b[93m" },
+            { ConsoleColor.Cyan,      "\u001b[96m" },
+            { ConsoleColor.Blue,      "\u001b[94m" },
+            { ConsoleColor.White,     "\u001b[97m" },
+        };
+
+        public static void PrintAlways(string text, ConsoleColor? color = null)
+        {
+            if (color.HasValue && AnsiColor.TryGetValue(color.Value, out var ansi))
+                Console.WriteLine($"{ansi}{text}\u001b[0m");
+            else
+                Console.WriteLine(text);
         }
 
         public static void Print(LogType type, object text, [CallerMemberName] string method = "", [CallerFilePath] string path = "")
