@@ -45,12 +45,16 @@ namespace Framework.Logging
         public static bool IsLogging => _logOutputThread != null && !logQueue.IsCompleted;
 
         public static bool DebugLogEnabled { get; set; }
-        
+        public static bool ErrorOnlyMode { get; set; } = false;
+
         /// <summary>
         /// Start the logging Thread and take logs out of the <see cref="BlockingCollection{T}"/>
         /// </summary>
         public static void Start()
         {
+#if !DEBUG
+            ErrorOnlyMode = !Debugger.IsAttached;
+#endif
             if (_logOutputThread == null)
             {
                 _logOutputThread = new Thread(() =>
@@ -70,6 +74,8 @@ namespace Framework.Logging
         {
             if (type == LogType.Debug && !DebugLogEnabled)
                 return;
+            if (ErrorOnlyMode && type != LogType.Error)
+                return;
 #if DEBUG
             Console.Write($"{DateTime.Now:HH:mm:ss.ff} | "); // This function is directly called in DEBUG, so our timesstamps can also be a more precise
 #else
@@ -80,6 +86,11 @@ namespace Framework.Logging
             Console.ResetColor();
 
             Console.WriteLine($"| {text}");
+        }
+
+        public static void PrintAlways(string text)
+        {
+            Console.WriteLine(text);
         }
 
         public static void Print(LogType type, object text, [CallerMemberName] string method = "", [CallerFilePath] string path = "")

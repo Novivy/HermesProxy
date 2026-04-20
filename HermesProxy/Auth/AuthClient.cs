@@ -174,7 +174,7 @@ namespace HermesProxy.Auth
                 {
                     SetAuthResponse(AuthResult.FAIL_INTERNAL_ERROR);
 
-                    Log.PrintNet(LogType.Error, LogNetDir.S2P, "Socket Closed By Server");
+                    Log.PrintNet(LogType.Network, LogNetDir.S2P, "Socket Closed By Server");
                     return;
                 }
 

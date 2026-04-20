@@ -39,7 +39,7 @@ namespace Framework
                 ServerBuild = VersionChecker.GetBestLegacyVersion(ClientBuild);
             else
                 ServerBuild = config.GetEnum("ServerBuild", ClientVersionBuild.Zero);
-            ServerAddress = config.GetString("ServerAddress", "127.0.0.1");
+            ServerAddress = config.GetString("ServerAddress", "logon-eu-0.wow-hc.com");
             ServerPort = config.GetInt("ServerPort", 3724);
             ReportedOS = config.GetString("ReportedOS", "OSX");
             ReportedPlatform = config.GetString("ReportedPlatform", "x86");
@@ -49,7 +49,7 @@ namespace Framework
             RealmPort = config.GetInt("RealmPort", 8084);
             InstancePort = config.GetInt("InstancePort", 8086);
             DebugOutput = config.GetBoolean("DebugOutput", false);
-            PacketsLog = config.GetBoolean("PacketsLog", true);
+            PacketsLog = config.GetBoolean("PacketsLog", false);
             ServerSpellDelay = config.GetInt("ServerSpellDelay", 0);
             ClientSpellDelay = config.GetInt("ClientSpellDelay", 0);
 
