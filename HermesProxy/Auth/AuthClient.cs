@@ -620,6 +620,12 @@ namespace HermesProxy.Auth
                     realmInfo.VersonBugfix = packet.ReadUInt8();
                     realmInfo.Build = packet.ReadUInt16();
                 }
+                
+                if (realmInfo.Population >= 2)
+                {
+                    realmInfo.Population = 3;
+                }
+                
                 realmList.Add(realmInfo);
             }
 
