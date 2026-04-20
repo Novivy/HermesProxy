@@ -28,7 +28,7 @@ namespace HermesProxy
 #if !DEBUG
             try
             {
-                if (!args.DisableVersionCheck)
+                //if (!args.DisableVersionCheck)
                     CheckForUpdate().WaitAsync(TimeSpan.FromSeconds(5)).Wait(); // Max wait 5 sec, maybe there is some wierd network error
             }
             catch { /* ignore */ }
