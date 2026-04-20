@@ -586,7 +586,7 @@ namespace HermesProxy.World.Client
             WhoResponsePkt response = new WhoResponsePkt();
             response.RequestID = GetSession().GameState.LastWhoRequestId;
             var count = packet.ReadUInt32();
-            packet.ReadUInt32(); // Online count
+            var matchCount = packet.ReadUInt32();
             for (var i = 0; i < count; ++i)
             {
                 WhoEntry player = new();
@@ -622,6 +622,13 @@ namespace HermesProxy.World.Client
                 });
             }
             SendPacketToClient(response);
+
+            if (matchCount > count)
+            {
+                var notify = new ChatPkt(GetSession(), ChatMessageTypeModern.System,
+                    $"{matchCount} People Online ({count} displayed)");
+                SendPacketToClient(notify);
+            }
         }
     }
 }
