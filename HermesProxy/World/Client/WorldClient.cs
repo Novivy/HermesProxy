@@ -167,7 +167,7 @@ namespace HermesProxy.World.Client
                     byte[] headerBuffer = new byte[LegacyServerPacketHeader.StructSize];
                     if (!await ReceiveBufferFully(headerBuffer))
                     {
-                        Log.PrintNet(LogType.Error, LogNetDir.S2P, "Socket Closed By GameWorldServer (header)");
+                        Log.PrintNet(LogType.Network, LogNetDir.S2P, "Socket Closed By GameWorldServer (header)");
                         if (_isSuccessful == null)
                             _isSuccessful = false;
                         else if (GetSession().WorldClient == this)
@@ -192,7 +192,7 @@ namespace HermesProxy.World.Client
 
                         if (!await ReceiveBufferFully(new ArraySegment<byte>(buffer, 2, buffer.Length - 2)))
                         {
-                            Log.PrintNet(LogType.Error, LogNetDir.S2P, "Socket Closed By GameWorldServer (payload)");
+                            Log.PrintNet(LogType.Network, LogNetDir.S2P, "Socket Closed By GameWorldServer (payload)");
                             if (_isSuccessful == null)
                                 _isSuccessful = false;
                             else if (GetSession().WorldClient == this)
