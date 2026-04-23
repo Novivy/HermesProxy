@@ -18,6 +18,8 @@ public class Program
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
 
+        OsSpecific.ShrinkConsoleWindow();
+
         var commandTree = new RootCommand("Hermes Proxy: Allows you to play on legacy WoW server with modern client")
         {
             CommandLineArgumentsTemplate.ConfigFileLocation,
@@ -141,11 +143,43 @@ internal static class OsSpecific
         }
     }
 
+    public static void ShrinkConsoleWindow()
+    {
+        try
+        {
+            int cols = Math.Min(80, Console.LargestWindowWidth);
+            int rows = Math.Min(12, Console.LargestWindowHeight);
+            Console.SetWindowSize(cols, rows);
+            Console.SetBufferSize(cols, 500);
+        }
+        catch { }
+#if _WINDOWS
+        try
+        {
+            var hwnd = GetConsoleWindow();
+            if (hwnd != IntPtr.Zero)
+            {
+                int w = 306, h = 198;
+                int sx = GetSystemMetrics(0); // SM_CXSCREEN
+                int sy = GetSystemMetrics(1); // SM_CYSCREEN
+                SetWindowPos(hwnd, new IntPtr(1), sx - w - 12, sy - h - 50, w, h, 0x0010); // SWP_NOACTIVATE | HWND_BOTTOM
+            }
+        }
+        catch { }
+#endif
+    }
+
 #if _WINDOWS
     [DllImport("kernel32.dll")]
     static extern IntPtr GetConsoleWindow();
 
-    [DllImport("user32.dll", SetLastError=true)]
+    [DllImport("user32.dll", SetLastError = true)]
     static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    static extern int GetSystemMetrics(int nIndex);
+
+    [DllImport("user32.dll")]
+    static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 #endif
 }
