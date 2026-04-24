@@ -1700,6 +1700,13 @@ namespace HermesProxy.World.Client
                     // in post vanilla versions, the client automatically multiplies the scale
                     // the server sends it by the default scale for this display id in the dbc
                     // this is not the case in 1.12, so we have to adjust the unit scale here
+                    
+                     //nyu: fix taurens displayId sizes (all models have been set to 1.351 for taurens in the db
+                     if (updateData.ObjectData.Scale == 1.351f)
+                     {
+                         updateData.ObjectData.Scale = 1.0f;
+                     }
+
                     if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V2_0_1_6180))
                         updateData.UnitData.DisplayScale = 1.0f / GameData.GetUnitCompleteDisplayScale((uint)updateData.UnitData.DisplayID);
                 }
