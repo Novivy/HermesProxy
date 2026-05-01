@@ -26,7 +26,7 @@ namespace HermesProxy.World.Server
                 Log.Print(LogType.Error, $"Client requested missing account data {data.DataType}.");
                 GetSession().AccountDataMgr.Data[data.DataType] = new();
                 GetSession().AccountDataMgr.Data[data.DataType].Type = data.DataType;
-                GetSession().AccountDataMgr.Data[data.DataType].Timestamp = Time.UnixTime;
+                GetSession().AccountDataMgr.Data[data.DataType].Timestamp = 0; // keep timestamp=0 so client does not overwrite its local data with empty content
                 GetSession().AccountDataMgr.Data[data.DataType].UncompressedSize = 0;
                 GetSession().AccountDataMgr.Data[data.DataType].CompressedData = new byte[0];
             }

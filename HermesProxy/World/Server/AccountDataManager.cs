@@ -219,9 +219,9 @@ namespace HermesProxy.World.Server
 
             if (File.Exists(fileName))
             {
-                using (FileStream file = File.OpenRead(GetFullFileName(guid, type)))
+                try
                 {
-                    using (BinaryReader reader = new BinaryReader(File.OpenRead(GetFullFileName(guid, type))))
+                    using (BinaryReader reader = new BinaryReader(File.OpenRead(fileName)))
                     {
                         data = new();
                         ulong guidLow = reader.ReadUInt64();
@@ -239,6 +239,12 @@ namespace HermesProxy.World.Server
                         int compressedSize = reader.ReadInt32();
                         data.CompressedData = reader.ReadBytes(compressedSize);
                     }
+                }
+                catch (Exception ex)
+                {
+                    Log.Print(LogType.Error, $"Corrupt account data file '{fileName}' (type {type}): {ex.Message}. Deleting it.");
+                    File.Delete(fileName);
+                    data = null;
                 }
             }
             
@@ -258,7 +264,9 @@ namespace HermesProxy.World.Server
             Data[type].UncompressedSize = uncompressedSize;
             Data[type].CompressedData = compressedData;
 
-            using (BinaryWriter writer = new BinaryWriter(File.Open(GetFullFileName(guid, type), FileMode.Create)))
+            string finalPath = GetFullFileName(guid, type);
+            string tempPath = finalPath + ".tmp";
+            using (BinaryWriter writer = new BinaryWriter(File.Open(tempPath, FileMode.Create)))
             {
                 writer.Write(guid.GetLowValue());
                 writer.Write(guid.GetHighValue());
@@ -268,6 +276,7 @@ namespace HermesProxy.World.Server
                 writer.Write(compressedData.Length);
                 writer.Write(compressedData);
             }
+            File.Move(tempPath, finalPath, overwrite: true);
         }
 
         public byte[] LoadCUFProfiles()
