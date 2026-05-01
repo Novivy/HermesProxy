@@ -1,4 +1,5 @@
 ﻿using Framework;
+using Framework.Logging;
 using HermesProxy.Enums;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Objects;
@@ -15,7 +16,10 @@ namespace HermesProxy.World.Client
         {
             uint serial = packet.ReadUInt32();
             if ((serial & 0x80000000) != 0)
-                return; // keepalive pong, don't forward to modern client
+            {
+                Log.Print(LogType.Debug, $"[KEEPALIVE] Received keep-alive PONG from backend (serial=0x{serial:X8}), not forwarding to modern client");
+                return;
+            }
             SendPacketToClient(new Pong(serial));
         }
 

@@ -175,7 +175,10 @@ namespace HermesProxy.World.Client
                         if (_isSuccessful == null)
                             _isSuccessful = false;
                         else
+                        {
+                            Log.Print(LogType.Error, "(DISCONNECT) Backend closed the socket (header read returned 0), propagating disconnect to modern client via OnDisconnect() (0)");
                             GetSession().OnDisconnect();
+                        }
                         return;
                     }
 
@@ -200,7 +203,10 @@ namespace HermesProxy.World.Client
                             if (_isSuccessful == null)
                                 _isSuccessful = false;
                             else if (GetSession().WorldClient == this)
+                            {
+                                Log.Print(LogType.Error, "(DISCONNECT) Backend closed the socket (payload read returned 0) — propagating disconnect to modern client via OnDisconnect() (1)");
                                 GetSession().OnDisconnect();
+                            }
                             return;
                         }
 
@@ -217,6 +223,7 @@ namespace HermesProxy.World.Client
                     _isSuccessful = false;
                 else
                 {
+                    Log.Print(LogType.Error, $"(DISCONNECT) Exception in ReceiveLoop, disconnecting and propagating to modern client via OnDisconnect() (2). Exception: {e.Message}");
                     Disconnect();
                     GetSession().OnDisconnect();
                 }
@@ -537,10 +544,14 @@ namespace HermesProxy.World.Client
         private void SendKeepAlivePing()
         {
             if (!IsConnected())
+            {
+                Log.Print(LogType.Debug, "(KEEPALIVE) Keep-alive timer fired but backend socket is no longer connected, skipping ping");
                 return;
+            }
 
             _keepAlivePingSerial++;
             uint serial = _keepAlivePingSerial | 0x80000000u;
+            Log.Print(LogType.Debug, $"(KEEPALIVE) Sending keep-alive PING to backend (serial=0x{serial:X8})");
             WorldPacket packet = new WorldPacket(Opcode.CMSG_PING);
             packet.WriteUInt32(serial);
             packet.WriteUInt32(0);

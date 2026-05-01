@@ -132,7 +132,7 @@ namespace HermesProxy.World.Server
 
             if (GetSession().WorldClient == null || !GetSession().WorldClient.IsConnected())
             {
-                Log.Print(LogType.Error, "Player tried to log in but WorldClient is disconnected");
+                Log.Print(LogType.Error, $"(DISCONNECT) Player '{selectedChar.Name}' tried to log in but WorldClient is null or disconnected, login blocked and client will be disconnected");
                 return;
             }
 
