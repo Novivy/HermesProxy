@@ -38,7 +38,7 @@ namespace Framework.Logging
             { LogType.Error,    (ConsoleColor.Red,      " Error   ") },
             { LogType.Warn,     (ConsoleColor.Yellow,   " Warning ") },
             { LogType.Storage,  (ConsoleColor.Cyan,     " Storage ") },
-        }; 
+        };
 
         static BlockingCollection<(LogType Type, string Message)> logQueue = new();
         private static Thread? _logOutputThread = null;
@@ -76,35 +76,42 @@ namespace Framework.Logging
                 return;
             if (ErrorOnlyMode && type != LogType.Error)
                 return;
+            try
+            {
 #if DEBUG
-            Console.Write($"{DateTime.Now:HH:mm:ss.ff} | "); // This function is directly called in DEBUG, so our timesstamps can also be a more precise
+                Console.Write($"{DateTime.Now:HH:mm:ss.ff} | "); // This function is directly called in DEBUG, so our timesstamps can also be a more precise
 #else
-            Console.Write($"{DateTime.Now:HH:mm:ss} | ");
+                Console.Write($"{DateTime.Now:HH:mm:ss} | ");
 #endif
-            Console.ForegroundColor = LogToColorType[type].Color;
-            Console.Write($"{LogToColorType[type].Type}");
-            Console.ResetColor();
-
-            Console.WriteLine($"| {text}");
+                Console.ForegroundColor = LogToColorType[type].Color;
+                Console.Write($"{LogToColorType[type].Type}");
+                Console.ResetColor();
+                Console.WriteLine($"| {text}");
+            }
+            catch (IOException) { }
         }
 
         static readonly Dictionary<ConsoleColor, string> AnsiColor = new()
         {
-            { ConsoleColor.Green,     "\u001b[92m" },
-            { ConsoleColor.DarkGreen, "\u001b[32m" },
-            { ConsoleColor.Red,       "\u001b[91m" },
-            { ConsoleColor.Yellow,    "\u001b[93m" },
-            { ConsoleColor.Cyan,      "\u001b[96m" },
-            { ConsoleColor.Blue,      "\u001b[94m" },
-            { ConsoleColor.White,     "\u001b[97m" },
+            { ConsoleColor.Green,     "[92m" },
+            { ConsoleColor.DarkGreen, "[32m" },
+            { ConsoleColor.Red,       "[91m" },
+            { ConsoleColor.Yellow,    "[93m" },
+            { ConsoleColor.Cyan,      "[96m" },
+            { ConsoleColor.Blue,      "[94m" },
+            { ConsoleColor.White,     "[97m" },
         };
 
         public static void PrintAlways(string text, ConsoleColor? color = null)
         {
-            if (color.HasValue && AnsiColor.TryGetValue(color.Value, out var ansi))
-                Console.WriteLine($"{ansi}{text}\u001b[0m");
-            else
-                Console.WriteLine(text);
+            try
+            {
+                if (color.HasValue && AnsiColor.TryGetValue(color.Value, out var ansi))
+                    Console.WriteLine($"{ansi}{text}[0m");
+                else
+                    Console.WriteLine(text);
+            }
+            catch (IOException) { }
         }
 
         public static void Print(LogType type, object text, [CallerMemberName] string method = "", [CallerFilePath] string path = "")
