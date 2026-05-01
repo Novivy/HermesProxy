@@ -130,6 +130,12 @@ namespace HermesProxy.World.Server
 
             GetSession().AccountMetaDataMgr.SaveLastSelectedCharacter(realm.Name, selectedChar.Name, playerLogin.Guid.Low, Time.UnixTime);
 
+            if (GetSession().WorldClient == null || !GetSession().WorldClient.IsConnected())
+            {
+                Log.Print(LogType.Error, "Player tried to log in but WorldClient is disconnected");
+                return;
+            }
+
             if (GetSession().AuthClient != null)
                 GetSession().AuthClient.Disconnect();
 

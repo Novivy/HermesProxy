@@ -29,6 +29,9 @@ namespace HermesProxy.World.Client
         Dictionary<Opcode, Action<WorldPacket>> _packetHandlers;
         GlobalSessionData _globalSession;
         System.Threading.Mutex _sendMutex = new System.Threading.Mutex();
+        System.Threading.Timer _keepAliveTimer;
+        uint _keepAlivePingSerial;
+        const int KeepAliveIntervalMs = 30000;
 
         // packet order is not always the same as new client, sometimes we need to delay packet until another one
         Dictionary<Opcode, List<WorldPacket>> _delayedPacketsToServer;
@@ -106,6 +109,7 @@ namespace HermesProxy.World.Client
             if (!IsConnected())
                 return;
 
+            StopKeepAliveTimer();
             _clientSocket.Shutdown(SocketShutdown.Both);
             _clientSocket.Disconnect(false);
 
@@ -170,7 +174,7 @@ namespace HermesProxy.World.Client
                         Log.PrintNet(LogType.Network, LogNetDir.S2P, "Socket Closed By GameWorldServer (header)");
                         if (_isSuccessful == null)
                             _isSuccessful = false;
-                        else if (GetSession().WorldClient == this)
+                        else
                             GetSession().OnDisconnect();
                         return;
                     }
@@ -491,6 +495,7 @@ namespace HermesProxy.World.Client
                     GetSession().RealmSocket.SendAuthWaitQue(_queuePosition);
                 }
                 _isSuccessful = true;
+                StartKeepAliveTimer();
             }
             else if (result == AuthResult.AUTH_WAIT_QUEUE)
             {
@@ -515,6 +520,30 @@ namespace HermesProxy.World.Client
             WorldPacket packet = new WorldPacket(Opcode.CMSG_PING);
             packet.WriteUInt32(ping);
             packet.WriteUInt32(latency);
+            SendPacket(packet);
+        }
+
+        private void StartKeepAliveTimer()
+        {
+            _keepAliveTimer = new System.Threading.Timer(_ => SendKeepAlivePing(), null, KeepAliveIntervalMs, KeepAliveIntervalMs);
+        }
+
+        private void StopKeepAliveTimer()
+        {
+            _keepAliveTimer?.Dispose();
+            _keepAliveTimer = null;
+        }
+
+        private void SendKeepAlivePing()
+        {
+            if (!IsConnected())
+                return;
+
+            _keepAlivePingSerial++;
+            uint serial = _keepAlivePingSerial | 0x80000000u;
+            WorldPacket packet = new WorldPacket(Opcode.CMSG_PING);
+            packet.WriteUInt32(serial);
+            packet.WriteUInt32(0);
             SendPacket(packet);
         }
 
