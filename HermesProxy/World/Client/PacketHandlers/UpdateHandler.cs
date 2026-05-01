@@ -2095,19 +2095,19 @@ namespace HermesProxy.World.Client
                     for (int i = 0; i < 19; i++)
                     {
                         int itemIdIndex = PLAYER_VISIBLE_ITEM_1_0 + i * offset;
-                        int permEnchantIdIndex = PLAYER_VISIBLE_ITEM_1_0 + 1 + i * offset; // PERM_ENCHANTMENT_SLOT = 0
-                        int tempEnchantIdIndex = PLAYER_VISIBLE_ITEM_1_0 + 2 + i * offset; // TEMP_ENCHANTMENT_SLOT = 1
-                        if (updateMaskArray[itemIdIndex] || updateMaskArray[permEnchantIdIndex] || updateMaskArray[tempEnchantIdIndex])
+                        int permEnchantIndex = PLAYER_VISIBLE_ITEM_1_0 + 1 + i * offset;
+                        int tempEnchantIndex = PLAYER_VISIBLE_ITEM_1_0 + 2 + i * offset;
+                        if (updateMaskArray[itemIdIndex] || updateMaskArray[permEnchantIndex] || updateMaskArray[tempEnchantIndex])
                         {
-                            updateData.PlayerData.VisibleItems[i] = new VisibleItem();
-                            if (updates.ContainsKey(itemIdIndex))
-                                updateData.PlayerData.VisibleItems[i].ItemID = updates[itemIdIndex].Int32Value;
-                            else
-                                updateData.PlayerData.VisibleItems[i].ItemID = (int)GetSession().GameState.GetItemId(GetSession().GameState.GetInventorySlotItem(i).To128(GetSession().GameState));
-                            uint tempEnchantId = updates.ContainsKey(tempEnchantIdIndex) ? updates[tempEnchantIdIndex].UInt32Value : 0;
-                            uint permEnchantId = updates.ContainsKey(permEnchantIdIndex) ? updates[permEnchantIdIndex].UInt32Value : 0;
-                            uint enchantIdForVisual = permEnchantId != 0 ? permEnchantId : tempEnchantId;
-                            updateData.PlayerData.VisibleItems[i].ItemVisual = (ushort)GameData.GetItemEnchantVisual(enchantIdForVisual);
+                            int itemId = updates.ContainsKey(itemIdIndex)
+                                ? updates[itemIdIndex].Int32Value
+                                : (int)GetSession().GameState.GetItemId(GetSession().GameState.GetInventorySlotItem(i).To128(GetSession().GameState));
+                            ushort itemVisual = 0;
+                            if (updates.ContainsKey(permEnchantIndex))
+                                itemVisual = (ushort)GameData.GetItemEnchantVisual(updates[permEnchantIndex].UInt32Value);
+                            if (itemVisual == 0 && updates.ContainsKey(tempEnchantIndex))
+                                itemVisual = (ushort)GameData.GetItemEnchantVisual(updates[tempEnchantIndex].UInt32Value);
+                            updateData.PlayerData.VisibleItems[i] = new VisibleItem() { ItemID = itemId, ItemVisual = itemVisual };
                         }
                     }
                 }
