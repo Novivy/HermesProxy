@@ -305,6 +305,10 @@ namespace HermesProxy.World.Client
             {
                 castId = GetSession().GameState.CurrentClientNormalCast.ServerGUID;
                 spellVisual = GetSession().GameState.CurrentClientNormalCast.SpellXSpellVisualId;
+                GetSession().GameState.CurrentClientNormalCast = null;
+                foreach (var pending in GetSession().GameState.PendingClientCasts)
+                    GetSession().InstanceSocket.SendCastRequestFailed(pending, false);
+                GetSession().GameState.PendingClientCasts.Clear();
             }
             else if (GetSession().GameState.CurrentPetGuid == casterUnit &&
                      GetSession().GameState.CurrentClientPetCast != null &&
@@ -312,6 +316,10 @@ namespace HermesProxy.World.Client
             {
                 castId = GetSession().GameState.CurrentClientPetCast.ServerGUID;
                 spellVisual = GetSession().GameState.CurrentClientPetCast.SpellXSpellVisualId;
+                GetSession().GameState.CurrentClientPetCast = null;
+                foreach (var pending in GetSession().GameState.PendingClientPetCasts)
+                    GetSession().InstanceSocket.SendCastRequestFailed(pending, true);
+                GetSession().GameState.PendingClientPetCasts.Clear();
             }
             else
             {

@@ -185,7 +185,10 @@ namespace HermesProxy.World.Server
                             SendCastRequestFailed(castRequest, false);
                         }
                         else
+                        {
+                            castRequest.PendingLegacyPacket = BuildLegacyCastPacket(cast);
                             GetSession().GameState.PendingClientCasts.Add(castRequest);
+                        }
                     }
                     return;
                 }
@@ -307,13 +310,19 @@ namespace HermesProxy.World.Server
                         SendCastRequestFailed(castRequest, false);
                     }
                     else
+                    {
+                        castRequest.PendingLegacyPacket = BuildLegacyUseItemPacket(use);
                         GetSession().GameState.PendingClientCasts.Add(castRequest);
+                    }
                 }
                 return;
             }
 
             GetSession().GameState.CurrentClientNormalCast = castRequest;
-
+            SendPacketToServer(BuildLegacyUseItemPacket(use));
+        }
+        private WorldPacket BuildLegacyUseItemPacket(UseItem use)
+        {
             WorldPacket packet = new WorldPacket(Opcode.CMSG_USE_ITEM);
             byte containerSlot = use.PackSlot != Enums.Classic.InventorySlots.Bag0 ? ModernVersion.AdjustInventorySlot(use.PackSlot) : use.PackSlot;
             byte slot = use.PackSlot == Enums.Classic.InventorySlots.Bag0 ? ModernVersion.AdjustInventorySlot(use.Slot) : use.Slot;
@@ -327,7 +336,7 @@ namespace HermesProxy.World.Server
             }
             SpellCastTargetFlags targetFlags = ConvertSpellTargetFlags(use.Cast.Target);
             WriteSpellTargets(use.Cast.Target, targetFlags, packet);
-            SendPacketToServer(packet);
+            return packet;
         }
         [PacketHandler(Opcode.CMSG_CANCEL_CAST)]
         void HandleCancelCast(CancelCast cast)
