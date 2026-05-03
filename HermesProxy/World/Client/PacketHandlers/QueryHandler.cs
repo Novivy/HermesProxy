@@ -260,6 +260,31 @@ namespace HermesProxy.World.Client
             quest.CompleteSoundKitID = 878;
 
             GameData.StoreQuestTemplate(response.QuestID, quest);
+
+            var pendingReward = GetSession().GameState.PendingQuestReward;
+            if (pendingReward.HasValue && pendingReward.Value.QuestID == response.QuestID)
+            {
+                GetSession().GameState.PendingQuestReward = null;
+                int choiceIndex = 0;
+                if (pendingReward.Value.ItemID != 0)
+                {
+                    for (int i = 0; i < quest.UnfilteredChoiceItems.Length; i++)
+                    {
+                        if (quest.UnfilteredChoiceItems[i].ItemID == pendingReward.Value.ItemID)
+                        {
+                            choiceIndex = i;
+                            break;
+                        }
+                    }
+                }
+                WorldPacket choosePacket = new WorldPacket(Opcode.CMSG_QUEST_GIVER_CHOOSE_REWARD);
+                choosePacket.WriteGuid(pendingReward.Value.QuestGiverGUID.To64());
+                choosePacket.WriteUInt32(pendingReward.Value.QuestID);
+                choosePacket.WriteInt32(choiceIndex);
+                SendPacketToServer(choosePacket);
+                Log.Print(LogType.Debug, $"Sent deferred quest {response.QuestID} reward choice (item slot {choiceIndex}).");
+            }
+
             SendPacketToClient(response);
         }
 

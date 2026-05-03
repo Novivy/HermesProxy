@@ -103,14 +103,11 @@ namespace HermesProxy.World.Server
                 QuestTemplate questTemplate = GameData.GetQuestTemplate(quest.QuestID);
                 if (questTemplate == null)
                 {
-                    Log.Print(LogType.Error, "Unable to select quest reward because quest template is missing. Try again.");
+                    Log.Print(LogType.Debug, $"Quest template {quest.QuestID} not cached when choosing reward, deferring until template arrives.");
+                    GetSession().GameState.PendingQuestReward = (quest.QuestGiverGUID, quest.QuestID, quest.Choice.Item.ItemID);
                     WorldPacket packet2 = new WorldPacket(Opcode.CMSG_QUERY_QUEST_INFO);
                     packet2.WriteUInt32(quest.QuestID);
                     SendPacketToServer(packet2);
-                    QuestGiverQuestFailed fail = new QuestGiverQuestFailed();
-                    fail.QuestID = quest.QuestID;
-                    fail.Reason = InventoryResult.ItemNotFound;
-                    SendPacket(fail);
                     return;
                 }
 

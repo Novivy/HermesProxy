@@ -253,6 +253,12 @@ namespace HermesProxy.World.Client
             GetSession().GameState.CurrentInteractedWithNPC = quest.QuestData.QuestGiverGUID;
             quest.QuestData.QuestGiverCreatureID = quest.QuestData.QuestGiverGUID.GetEntry();
             quest.QuestData.QuestID = packet.ReadUInt32();
+            if (GameData.GetQuestTemplate(quest.QuestData.QuestID) == null)
+            {
+                WorldPacket queryPacket = new WorldPacket(Opcode.CMSG_QUERY_QUEST_INFO);
+                queryPacket.WriteUInt32(quest.QuestData.QuestID);
+                SendPacketToServer(queryPacket);
+            }
             quest.QuestTitle = packet.ReadCString();
             quest.RewardText = packet.ReadCString();
 
