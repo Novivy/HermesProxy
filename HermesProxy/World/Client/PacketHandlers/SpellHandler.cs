@@ -3,6 +3,8 @@ using HermesProxy.Enums;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Server.Packets;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 
 namespace HermesProxy.World.Client
@@ -186,7 +188,7 @@ namespace HermesProxy.World.Client
                 SendPacketToClient(failed);
 
                 GetSession().GameState.CurrentClientNormalCast = null;
-                foreach (var pending in GetSession().GameState.PendingClientCasts)
+                foreach (var pending in GetSession().GameState.PendingClientCasts.ToList())
                     GetSession().InstanceSocket.SendCastRequestFailed(pending, false);
                 GetSession().GameState.PendingClientCasts.Clear();
             }
@@ -306,7 +308,7 @@ namespace HermesProxy.World.Client
                 castId = GetSession().GameState.CurrentClientNormalCast.ServerGUID;
                 spellVisual = GetSession().GameState.CurrentClientNormalCast.SpellXSpellVisualId;
                 GetSession().GameState.CurrentClientNormalCast = null;
-                foreach (var pending in GetSession().GameState.PendingClientCasts)
+                foreach (var pending in GetSession().GameState.PendingClientCasts.ToList())
                     GetSession().InstanceSocket.SendCastRequestFailed(pending, false);
                 GetSession().GameState.PendingClientCasts.Clear();
             }
@@ -317,7 +319,7 @@ namespace HermesProxy.World.Client
                 castId = GetSession().GameState.CurrentClientPetCast.ServerGUID;
                 spellVisual = GetSession().GameState.CurrentClientPetCast.SpellXSpellVisualId;
                 GetSession().GameState.CurrentClientPetCast = null;
-                foreach (var pending in GetSession().GameState.PendingClientPetCasts)
+                foreach (var pending in GetSession().GameState.PendingClientPetCasts.ToList())
                     GetSession().InstanceSocket.SendCastRequestFailed(pending, true);
                 GetSession().GameState.PendingClientPetCasts.Clear();
             }
@@ -396,13 +398,13 @@ namespace HermesProxy.World.Client
 
             if (failPending == 1)
             {
-                foreach (var pending in GetSession().GameState.PendingClientCasts)
+                foreach (var pending in GetSession().GameState.PendingClientCasts.ToList())
                     GetSession().InstanceSocket.SendCastRequestFailed(pending, false);
                 GetSession().GameState.PendingClientCasts.Clear();
             }
             else if (failPending == 2)
             {
-                foreach (var pending in GetSession().GameState.PendingClientPetCasts)
+                foreach (var pending in GetSession().GameState.PendingClientPetCasts.ToList())
                     GetSession().InstanceSocket.SendCastRequestFailed(pending, true);
                 GetSession().GameState.PendingClientPetCasts.Clear();
             }

@@ -6,6 +6,8 @@ using HermesProxy.World.Enums;
 using HermesProxy.World.Objects;
 using HermesProxy.World.Server.Packets;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using Framework.Logging;
 
@@ -160,7 +162,7 @@ namespace HermesProxy.World.Server
                         if (Settings.SpellQueueWindow > 0 && current.CastDuration > 0 && remainingMs <= Settings.SpellQueueWindow)
                         {
                             castRequest.PendingLegacyPacket = BuildLegacyCastPacket(cast);
-                            foreach (var old in GetSession().GameState.PendingClientCasts)
+                            foreach (var old in GetSession().GameState.PendingClientCasts.ToList())
                                 SendCastRequestFailed(old, false);
                             GetSession().GameState.PendingClientCasts.Clear();
                             GetSession().GameState.PendingClientCasts.Add(castRequest);
@@ -179,7 +181,7 @@ namespace HermesProxy.World.Server
                             Log.Print(LogType.Warn, "Are you playing on a server with another patch?");
                             SendCastRequestFailed(GetSession().GameState.CurrentClientNormalCast, false);
                             GetSession().GameState.CurrentClientNormalCast = null;
-                            foreach (var pending in GetSession().GameState.PendingClientCasts)
+                            foreach (var pending in GetSession().GameState.PendingClientCasts.ToList())
                                 SendCastRequestFailed(pending, false);
                             GetSession().GameState.PendingClientCasts.Clear();
                             SendCastRequestFailed(castRequest, false);
@@ -249,7 +251,7 @@ namespace HermesProxy.World.Server
                         Log.Print(LogType.Warn, $"Clearing CurrentClientPetCast because of 10 sec timeout! (oldSpell:{GetSession().GameState.CurrentClientPetCast.SpellId} newSpell:{castRequest.SpellId})");
                         SendCastRequestFailed(GetSession().GameState.CurrentClientPetCast, true);
                         GetSession().GameState.CurrentClientPetCast = null;
-                        foreach (var pending in GetSession().GameState.PendingClientPetCasts)
+                        foreach (var pending in GetSession().GameState.PendingClientPetCasts.ToList())
                             SendCastRequestFailed(pending, true);
                         GetSession().GameState.PendingClientPetCasts.Clear();
                         SendCastRequestFailed(castRequest, true);
@@ -304,7 +306,7 @@ namespace HermesProxy.World.Server
                         Log.Print(LogType.Warn, $"Clearing CurrentClientNormalCast because of 10 sec timeout! (oldSpell:{GetSession().GameState.CurrentClientNormalCast.SpellId} newSpell:{castRequest.SpellId})");
                         SendCastRequestFailed(GetSession().GameState.CurrentClientNormalCast, false);
                         GetSession().GameState.CurrentClientNormalCast = null;
-                        foreach (var pending in GetSession().GameState.PendingClientCasts)
+                        foreach (var pending in GetSession().GameState.PendingClientCasts.ToList())
                             SendCastRequestFailed(pending, false);
                         GetSession().GameState.PendingClientCasts.Clear();
                         SendCastRequestFailed(castRequest, false);
