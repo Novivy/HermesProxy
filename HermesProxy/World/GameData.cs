@@ -488,6 +488,28 @@ namespace HermesProxy.World
             return null;
         }
 
+        // Custom BroadcastText IDs are assigned deterministically via FNV-1a hash so that
+        // the same text always gets the same ID across HermesProxy restarts. Without this,
+        // the 1.14 client WDB cache could serve a stale BroadcastText from a previous session
+        // (e.g. "Mmmrrglllm!" appearing for unrelated NPCs after the baby murloc was talked to).
+        private const uint CustomBroadcastTextIdBase = 2_000_000u;
+        private const uint CustomBroadcastTextIdRange = 2_000_000u;
+
+        private static uint ComputeStableBroadcastTextId(string maleText, string femaleText, uint language)
+        {
+            unchecked
+            {
+                uint hash = 2166136261u;
+                foreach (char c in maleText ?? "")
+                    hash = (hash ^ c) * 16777619u;
+                hash ^= 0xAB1234u;
+                foreach (char c in femaleText ?? "")
+                    hash = (hash ^ c) * 16777619u;
+                hash ^= language * 0x9E3779B9u;
+                return CustomBroadcastTextIdBase + (hash % CustomBroadcastTextIdRange);
+            }
+        }
+
         public static uint GetBroadcastTextId(string maleText, string femaleText, uint language, ushort[] emoteDelays, ushort[] emotes)
         {
             foreach (var itr in BroadcastTextStore)
@@ -502,8 +524,15 @@ namespace HermesProxy.World
                 }
             }
 
+            // Stable deterministic ID — same text always maps to the same ID across restarts,
+            // preventing the client WDB cache from serving stale content after a HermesProxy restart.
+            uint candidateId = ComputeStableBroadcastTextId(maleText, femaleText, language);
+            // Resolve hash collisions: a different text already occupies this slot, so walk forward.
+            while (BroadcastTextStore.ContainsKey(candidateId))
+                candidateId++;
+
             BroadcastText broadcastText = new();
-            broadcastText.Entry = BroadcastTextStore.Keys.Last() + 1;
+            broadcastText.Entry = candidateId;
             broadcastText.MaleText = maleText;
             broadcastText.FemaleText = femaleText;
             broadcastText.Language = language;
