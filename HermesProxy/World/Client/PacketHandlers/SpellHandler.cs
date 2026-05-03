@@ -353,6 +353,8 @@ namespace HermesProxy.World.Client
                 spell.Cast.CastID = GetSession().GameState.CurrentClientNormalCast.ServerGUID;
                 spell.Cast.SpellXSpellVisualID = GetSession().GameState.CurrentClientNormalCast.SpellXSpellVisualId;
                 GetSession().GameState.CurrentClientNormalCast.HasStarted = true;
+                GetSession().GameState.CurrentClientNormalCast.SpellStartTimestamp = Environment.TickCount;
+                GetSession().GameState.CurrentClientNormalCast.CastDuration = (uint)spell.Cast.CastTime;
 
                 SpellPrepare prepare = new();
                 prepare.ClientCastID = GetSession().GameState.CurrentClientNormalCast.ClientGUID;
@@ -414,6 +416,13 @@ namespace HermesProxy.World.Client
                 spell.Cast.SpellXSpellVisualID = GetSession().GameState.CurrentClientNormalCast.SpellXSpellVisualId;
                 GetSession().GameState.CurrentClientNormalCast = null;
 
+                if (GetSession().GameState.PendingClientCasts.Count > 0)
+                {
+                    var queued = GetSession().GameState.PendingClientCasts[0];
+                    GetSession().GameState.PendingClientCasts.RemoveAt(0);
+                    GetSession().GameState.CurrentClientNormalCast = queued;
+                    SendPacketToServer(queued.PendingLegacyPacket);
+                }
             }
             else if (GetSession().GameState.CurrentPlayerGuid == spell.Cast.CasterUnit &&
                 GetSession().GameState.CurrentClientSpecialCast != null &&

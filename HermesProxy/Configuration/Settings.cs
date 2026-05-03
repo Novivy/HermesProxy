@@ -29,6 +29,7 @@ namespace Framework
         public static bool PacketsLog;
         public static int ServerSpellDelay;
         public static int ClientSpellDelay;
+        public static int SpellQueueWindow;
 
         public static bool LoadAndVerifyFrom(ConfigurationParser config)
         {
@@ -52,6 +53,7 @@ namespace Framework
             PacketsLog = config.GetBoolean("PacketsLog", false);
             ServerSpellDelay = config.GetInt("ServerSpellDelay", 0);
             ClientSpellDelay = config.GetInt("ClientSpellDelay", 0);
+            SpellQueueWindow = config.GetInt("SpellQueueWindow", 300);
 
             return VerifyConfig();
         }
@@ -115,6 +117,12 @@ namespace Framework
             if (ClientSpellDelay < 0)
             {
                 Log.Print(LogType.Server, "ClientSpellDelay must be larger than or equal to 0");
+                return false;
+            }
+
+            if (SpellQueueWindow < 0)
+            {
+                Log.Print(LogType.Server, "SpellQueueWindow must be larger than or equal to 0");
                 return false;
             }
 

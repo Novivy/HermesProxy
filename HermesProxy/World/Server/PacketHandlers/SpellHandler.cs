@@ -155,7 +155,20 @@ namespace HermesProxy.World.Server
                 {
                     if (GetSession().GameState.CurrentClientNormalCast.HasStarted)
                     {
-                        SendCastRequestFailed(castRequest, false);
+                        var current = GetSession().GameState.CurrentClientNormalCast;
+                        long remainingMs = current.SpellStartTimestamp + current.CastDuration - Environment.TickCount;
+                        if (Settings.SpellQueueWindow > 0 && current.CastDuration > 0 && remainingMs <= Settings.SpellQueueWindow)
+                        {
+                            castRequest.PendingLegacyPacket = BuildLegacyCastPacket(cast);
+                            foreach (var old in GetSession().GameState.PendingClientCasts)
+                                SendCastRequestFailed(old, false);
+                            GetSession().GameState.PendingClientCasts.Clear();
+                            GetSession().GameState.PendingClientCasts.Add(castRequest);
+                        }
+                        else
+                        {
+                            SendCastRequestFailed(castRequest, false);
+                        }
                     }
                     else
                     {
@@ -180,8 +193,11 @@ namespace HermesProxy.World.Server
                 GetSession().GameState.CurrentClientNormalCast = castRequest;
             }
 
+            SendPacketToServer(BuildLegacyCastPacket(cast));
+        }
+        private WorldPacket BuildLegacyCastPacket(CastSpell cast)
+        {
             SpellCastTargetFlags targetFlags = ConvertSpellTargetFlags(cast.Cast.Target);
-
             WorldPacket packet = new WorldPacket(Opcode.CMSG_CAST_SPELL);
             if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V2_0_1_6180))
             {
@@ -199,7 +215,7 @@ namespace HermesProxy.World.Server
                 packet.WriteUInt8((byte)cast.Cast.SendCastFlags);
             }
             WriteSpellTargets(cast.Cast.Target, targetFlags, packet);
-            SendPacketToServer(packet);
+            return packet;
         }
         [PacketHandler(Opcode.CMSG_PET_CAST_SPELL)]
         void HandlePetCastSpell(PetCastSpell cast)

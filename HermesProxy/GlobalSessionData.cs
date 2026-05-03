@@ -759,6 +759,9 @@ namespace HermesProxy
         public WowGuid128 ClientGUID;
         public WowGuid128 ServerGUID;
         public WowGuid128 ItemGUID;
+        public long SpellStartTimestamp;
+        public uint CastDuration;
+        public WorldPacket PendingLegacyPacket;
     }
     public class ArenaTeamData
     {
