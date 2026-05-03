@@ -1256,6 +1256,23 @@ namespace HermesProxy.World.Client
             if (OBJECT_FIELD_SCALE_X >= 0 && updateMaskArray[OBJECT_FIELD_SCALE_X])
             {
                 updateData.ObjectData.Scale = updates[OBJECT_FIELD_SCALE_X].FloatValue;
+
+                // The 1.14 client (unlike 1.12) applies CreatureFamily pet scaling client-side.
+                // cmangos already applies it server-side in SetObjectScale(familyScale), causing
+                // double application. Reset to 1.0 so the client's own calculation is authoritative.
+                if (guid.GetHighType() == HighGuidType.Pet && LegacyVersion.RemovedInVersion(ClientVersionBuild.V2_0_1_6180))
+                {
+                    bool isHunterPet = GetSession().GameState.HunterPetGuids.Contains(guid);
+                    if (!isHunterPet)
+                    {
+                        // On the creation packet, HunterPetGuids isn't populated yet, check power type directly.
+                        int bytes0Idx = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_BYTES_0);
+                        if (bytes0Idx >= 0 && updateMaskArray[bytes0Idx])
+                            isHunterPet = (byte)((updates[bytes0Idx].UInt32Value >> 24) & 0xFF) == (byte)PowerType.Focus;
+                    }
+                    if (isHunterPet)
+                        updateData.ObjectData.Scale = 1.0f;
+                }
             }
 
             // Item Fields
