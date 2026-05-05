@@ -30,6 +30,23 @@ namespace HermesProxy.World.Client
             }
             SendPacketToClient(spells);
 
+            // The legacy server only sends SMSG_SET_PROFICIENCY when a new proficiency is
+            // learned (never at login). The modern client needs an explicit proficiency packet
+            // at login, otherwise it defaults to showing all items as equippable in tooltips.
+            uint weaponProf = 0;
+            uint armorProf = 0;
+            foreach (uint sid in spells.KnownSpells)
+            {
+                if (GameData.WeaponProficiencySpells.TryGetValue(sid, out uint wMask))
+                    weaponProf |= wMask;
+                if (GameData.ArmorProficiencySpells.TryGetValue(sid, out uint aMask))
+                    armorProf |= aMask;
+            }
+            if (weaponProf != 0)
+                SendPacketToClient(new SetProficiency { ProficiencyClass = 2, ProficiencyMask = weaponProf });
+            if (armorProf != 0)
+                SendPacketToClient(new SetProficiency { ProficiencyClass = 4, ProficiencyMask = armorProf });
+
             ushort cooldownCount = packet.ReadUInt16();
             if (cooldownCount != 0)
             {

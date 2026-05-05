@@ -50,6 +50,43 @@ namespace HermesProxy.World
         public static int[,] TaxiNodesGraph = new int[250,250];
         public static Dictionary<uint /*questId*/, uint /*questBit*/> QuestBits = new Dictionary<uint, uint>();
 
+        // Proficiency spells: spell ID -> item subclass mask (for ITEM_CLASS_WEAPON = 2 or ITEM_CLASS_ARMOR = 4)
+        public static readonly Dictionary<uint, uint> WeaponProficiencySpells = new Dictionary<uint, uint>
+        {
+            { 196,   1 },        // Axes (1H)
+            { 197,   2 },        // Axes (2H)
+            { 264,   4 },        // Bows
+            { 266,   8 },        // Guns
+            { 198,   16 },       // Maces (1H)
+            { 199,   32 },       // Maces (2H)
+            { 200,   64 },       // Polearms
+            { 201,   128 },      // Swords (1H)
+            { 202,   256 },      // Swords (2H)
+            { 227,   1024 },     // Staves
+            { 15590, 8192 },     // Fist Weapons
+            { 2382,  16384 },    // Miscellaneous weapons
+            { 1180,  32768 },    // Daggers
+            { 2567,  65536 },    // Thrown
+            { 3386,  131072 },   // Spears
+            { 5011,  262144 },   // Crossbows
+            { 5009,  524288 },   // Wands
+            { 7738,  1048576 },  // Fishing Poles
+        };
+
+        public static readonly Dictionary<uint, uint> ArmorProficiencySpells = new Dictionary<uint, uint>
+        {
+            { 9125,  1 },    // Miscellaneous armor
+            { 9078,  2 },    // Cloth
+            { 9077,  4 },    // Leather
+            { 8737,  8 },    // Mail
+            { 750,   16 },   // Plate
+            { 9124,  32 },   // Cosmetic armor
+            { 9116,  64 },   // Shields
+            { 27762, 128 },  // Librams
+            { 27764, 256 },  // Idols
+            { 27763, 512 },  // Totems
+        };
+
         // From Server
         public static Dictionary<uint, ItemTemplate> ItemTemplates = new Dictionary<uint, ItemTemplate>();
         public static Dictionary<uint, CreatureTemplate> CreatureTemplates = new Dictionary<uint, CreatureTemplate>();
