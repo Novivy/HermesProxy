@@ -4,6 +4,7 @@ using HermesProxy.World.Enums;
 using HermesProxy.World.Objects;
 using HermesProxy.World.Server.Packets;
 using System;
+using System.Collections.Generic;
 
 namespace HermesProxy.World.Client
 {
@@ -134,13 +135,18 @@ namespace HermesProxy.World.Client
 
             SendPacketToClient(failure);
 
-            if (GetSession().GameState.CurrentClientNormalCast != null &&
-               !GetSession().GameState.CurrentClientNormalCast.HasStarted &&
-                GetSession().GameState.CurrentClientNormalCast.ItemGUID == failure.Item[0])
+            ClientCastRequest failedItemCast1 = null;
+            lock (GetSession().GameState.SpellCastLock)
             {
-                GetSession().InstanceSocket.SendCastRequestFailed(GetSession().GameState.CurrentClientNormalCast, false);
-                GetSession().GameState.CurrentClientNormalCast = null;
+                var cast = GetSession().GameState.CurrentClientNormalCast;
+                if (cast != null && !cast.HasStarted && cast.ItemGUID == failure.Item[0])
+                {
+                    failedItemCast1 = cast;
+                    GetSession().GameState.CurrentClientNormalCast = null;
+                }
             }
+            if (failedItemCast1 != null)
+                GetSession().InstanceSocket.SendCastRequestFailed(failedItemCast1, false);
         }
         [PacketHandler(Opcode.SMSG_INVENTORY_CHANGE_FAILURE, ClientVersionBuild.V2_0_1_6180)]
         void HandleInventoryChangeFailure(WorldPacket packet)
@@ -173,13 +179,18 @@ namespace HermesProxy.World.Client
             }
             SendPacketToClient(failure);
 
-            if (GetSession().GameState.CurrentClientNormalCast != null &&
-               !GetSession().GameState.CurrentClientNormalCast.HasStarted &&
-                GetSession().GameState.CurrentClientNormalCast.ItemGUID == failure.Item[0])
+            ClientCastRequest failedItemCast2 = null;
+            lock (GetSession().GameState.SpellCastLock)
             {
-                GetSession().InstanceSocket.SendCastRequestFailed(GetSession().GameState.CurrentClientNormalCast, false);
-                GetSession().GameState.CurrentClientNormalCast = null;
+                var cast = GetSession().GameState.CurrentClientNormalCast;
+                if (cast != null && !cast.HasStarted && cast.ItemGUID == failure.Item[0])
+                {
+                    failedItemCast2 = cast;
+                    GetSession().GameState.CurrentClientNormalCast = null;
+                }
             }
+            if (failedItemCast2 != null)
+                GetSession().InstanceSocket.SendCastRequestFailed(failedItemCast2, false);
         }
         [PacketHandler(Opcode.SMSG_DURABILITY_DAMAGE_DEATH)]
         void HandleDurabilityDamageDeath(WorldPacket packet)

@@ -87,6 +87,7 @@ namespace HermesProxy
         public ClientCastRequest CurrentClientPetCast;
         public List<ClientCastRequest> PendingClientCasts = new List<ClientCastRequest>();
         public List<ClientCastRequest> PendingClientPetCasts = new List<ClientCastRequest>();
+        public readonly object SpellCastLock = new object();
         public WowGuid64 LastLootTargetGuid;
         public List<int> ActionButtons = new();
         public Dictionary<WowGuid128, Dictionary<byte, int>> UnitAuraDurationUpdateTime = new();

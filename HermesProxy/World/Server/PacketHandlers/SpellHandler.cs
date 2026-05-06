@@ -83,6 +83,8 @@ namespace HermesProxy.World.Server
         }
         public void SendCastRequestFailed(ClientCastRequest castRequest, bool isPet)
         {
+            if (castRequest == null || castRequest.ServerGUID == null)
+                return;
             if (!castRequest.HasStarted)
             {
                 SpellPrepare prepare2 = new SpellPrepare();
@@ -125,24 +127,30 @@ namespace HermesProxy.World.Server
                 castRequest.SpellId = cast.Cast.SpellID;
                 castRequest.SpellXSpellVisualId = cast.Cast.SpellXSpellVisualID;
                 castRequest.ClientGUID = cast.Cast.CastID;
-                
-                if (GetSession().GameState.CurrentClientSpecialCast != null)
+
+                bool alreadyHasSpecial;
+                lock (GetSession().GameState.SpellCastLock)
                 {
-                    castRequest.ServerGUID = WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId, cast.Cast.SpellID, 10000 + cast.Cast.CastID.GetCounter());
+                    alreadyHasSpecial = GetSession().GameState.CurrentClientSpecialCast != null;
+                    if (alreadyHasSpecial)
+                    {
+                        castRequest.ServerGUID = WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId, cast.Cast.SpellID, 10000 + cast.Cast.CastID.GetCounter());
+                    }
+                    else
+                    {
+                        castRequest.ServerGUID = WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId, cast.Cast.SpellID, cast.Cast.SpellID + GetSession().GameState.CurrentPlayerGuid.GetCounter());
+                        GetSession().GameState.CurrentClientSpecialCast = castRequest;
+                    }
+                }
+                if (alreadyHasSpecial)
+                {
                     SendCastRequestFailed(castRequest, false);
                     return;
                 }
-                else
-                {
-                    castRequest.ServerGUID = WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId, cast.Cast.SpellID, cast.Cast.SpellID + GetSession().GameState.CurrentPlayerGuid.GetCounter());
-
-                    SpellPrepare prepare = new SpellPrepare();
-                    prepare.ClientCastID = cast.Cast.CastID;
-                    prepare.ServerCastID = castRequest.ServerGUID;
-                    SendPacket(prepare);
-
-                    GetSession().GameState.CurrentClientSpecialCast = castRequest;
-                } 
+                SpellPrepare prepare = new SpellPrepare();
+                prepare.ClientCastID = cast.Cast.CastID;
+                prepare.ServerCastID = castRequest.ServerGUID;
+                SendPacket(prepare);
             }
             else
             {
@@ -153,19 +161,27 @@ namespace HermesProxy.World.Server
                 castRequest.ClientGUID = cast.Cast.CastID;
                 castRequest.ServerGUID = WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId, cast.Cast.SpellID, 10000 + cast.Cast.CastID.GetCounter());
 
-                if (GetSession().GameState.CurrentClientNormalCast != null)
+                ClientCastRequest currentNormalCast;
+                lock (GetSession().GameState.SpellCastLock)
+                    currentNormalCast = GetSession().GameState.CurrentClientNormalCast;
+
+                if (currentNormalCast != null)
                 {
-                    if (GetSession().GameState.CurrentClientNormalCast.HasStarted)
+                    if (currentNormalCast.HasStarted)
                     {
-                        var current = GetSession().GameState.CurrentClientNormalCast;
-                        long remainingMs = current.SpellStartTimestamp + current.CastDuration - Environment.TickCount;
-                        if (Settings.SpellQueueWindow > 0 && current.CastDuration > 0 && remainingMs <= Settings.SpellQueueWindow)
+                        long remainingMs = currentNormalCast.SpellStartTimestamp + currentNormalCast.CastDuration - Environment.TickCount;
+                        if (Settings.SpellQueueWindow > 0 && currentNormalCast.CastDuration > 0 && remainingMs <= Settings.SpellQueueWindow)
                         {
                             castRequest.PendingLegacyPacket = BuildLegacyCastPacket(cast);
-                            foreach (var old in GetSession().GameState.PendingClientCasts.ToList())
+                            List<ClientCastRequest> toFail;
+                            lock (GetSession().GameState.SpellCastLock)
+                            {
+                                toFail = GetSession().GameState.PendingClientCasts.ToList();
+                                GetSession().GameState.PendingClientCasts.Clear();
+                                GetSession().GameState.PendingClientCasts.Add(castRequest);
+                            }
+                            foreach (var old in toFail)
                                 SendCastRequestFailed(old, false);
-                            GetSession().GameState.PendingClientCasts.Clear();
-                            GetSession().GameState.PendingClientCasts.Add(castRequest);
                         }
                         else
                         {
@@ -175,27 +191,35 @@ namespace HermesProxy.World.Server
                     else
                     {
                         // Sometimes we dont clear the CurrentCast when we dont get the correct SMSG_SPELL_GO
-                        if (GetSession().GameState.CurrentClientNormalCast.Timestamp + 10000 < castRequest.Timestamp)
+                        if (currentNormalCast.Timestamp + 10000 < castRequest.Timestamp)
                         {
-                            Log.Print(LogType.Warn, $"Clearing CurrentClientNormalCast because of 10 sec timeout! (oldSpell:{GetSession().GameState.CurrentClientNormalCast.SpellId} newSpell:{castRequest.SpellId})");
+                            Log.Print(LogType.Warn, $"Clearing CurrentClientNormalCast because of 10 sec timeout! (oldSpell:{currentNormalCast.SpellId} newSpell:{castRequest.SpellId})");
                             Log.Print(LogType.Warn, "Are you playing on a server with another patch?");
-                            SendCastRequestFailed(GetSession().GameState.CurrentClientNormalCast, false);
-                            GetSession().GameState.CurrentClientNormalCast = null;
-                            foreach (var pending in GetSession().GameState.PendingClientCasts.ToList())
+                            List<ClientCastRequest> toFail;
+                            lock (GetSession().GameState.SpellCastLock)
+                            {
+                                if (ReferenceEquals(GetSession().GameState.CurrentClientNormalCast, currentNormalCast))
+                                    GetSession().GameState.CurrentClientNormalCast = null;
+                                toFail = GetSession().GameState.PendingClientCasts.ToList();
+                                GetSession().GameState.PendingClientCasts.Clear();
+                            }
+                            SendCastRequestFailed(currentNormalCast, false);
+                            foreach (var pending in toFail)
                                 SendCastRequestFailed(pending, false);
-                            GetSession().GameState.PendingClientCasts.Clear();
                             SendCastRequestFailed(castRequest, false);
                         }
                         else
                         {
                             castRequest.PendingLegacyPacket = BuildLegacyCastPacket(cast);
-                            GetSession().GameState.PendingClientCasts.Add(castRequest);
+                            lock (GetSession().GameState.SpellCastLock)
+                                GetSession().GameState.PendingClientCasts.Add(castRequest);
                         }
                     }
                     return;
                 }
 
-                GetSession().GameState.CurrentClientNormalCast = castRequest;
+                lock (GetSession().GameState.SpellCastLock)
+                    GetSession().GameState.CurrentClientNormalCast = castRequest;
             }
 
             SendPacketToServer(BuildLegacyCastPacket(cast));
@@ -237,32 +261,46 @@ namespace HermesProxy.World.Server
             castRequest.ClientGUID = cast.Cast.CastID;
             castRequest.ServerGUID = WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId, cast.Cast.SpellID, 10000 + cast.Cast.CastID.GetCounter());
 
-            if (GetSession().GameState.CurrentClientPetCast != null)
+            ClientCastRequest currentPetCast;
+            lock (GetSession().GameState.SpellCastLock)
+                currentPetCast = GetSession().GameState.CurrentClientPetCast;
+
+            if (currentPetCast != null)
             {
-                if (GetSession().GameState.CurrentClientPetCast.HasStarted)
+                if (currentPetCast.HasStarted)
                 {
                     SendCastRequestFailed(castRequest, true);
                 }
                 else
                 {
                     // Sometimes we dont clear the CurrentCast when we dont get the correct SMSG_SPELL_GO
-                    if (GetSession().GameState.CurrentClientPetCast.Timestamp + 10000 < castRequest.Timestamp)
+                    if (currentPetCast.Timestamp + 10000 < castRequest.Timestamp)
                     {
-                        Log.Print(LogType.Warn, $"Clearing CurrentClientPetCast because of 10 sec timeout! (oldSpell:{GetSession().GameState.CurrentClientPetCast.SpellId} newSpell:{castRequest.SpellId})");
-                        SendCastRequestFailed(GetSession().GameState.CurrentClientPetCast, true);
-                        GetSession().GameState.CurrentClientPetCast = null;
-                        foreach (var pending in GetSession().GameState.PendingClientPetCasts.ToList())
+                        Log.Print(LogType.Warn, $"Clearing CurrentClientPetCast because of 10 sec timeout! (oldSpell:{currentPetCast.SpellId} newSpell:{castRequest.SpellId})");
+                        List<ClientCastRequest> toFail;
+                        lock (GetSession().GameState.SpellCastLock)
+                        {
+                            if (ReferenceEquals(GetSession().GameState.CurrentClientPetCast, currentPetCast))
+                                GetSession().GameState.CurrentClientPetCast = null;
+                            toFail = GetSession().GameState.PendingClientPetCasts.ToList();
+                            GetSession().GameState.PendingClientPetCasts.Clear();
+                        }
+                        SendCastRequestFailed(currentPetCast, true);
+                        foreach (var pending in toFail)
                             SendCastRequestFailed(pending, true);
-                        GetSession().GameState.PendingClientPetCasts.Clear();
                         SendCastRequestFailed(castRequest, true);
                     }
                     else
-                        GetSession().GameState.PendingClientPetCasts.Add(castRequest);
+                    {
+                        lock (GetSession().GameState.SpellCastLock)
+                            GetSession().GameState.PendingClientPetCasts.Add(castRequest);
+                    }
                 }
                 return;
             }
 
-            GetSession().GameState.CurrentClientPetCast = castRequest;
+            lock (GetSession().GameState.SpellCastLock)
+                GetSession().GameState.CurrentClientPetCast = castRequest;
 
             SpellCastTargetFlags targetFlags = ConvertSpellTargetFlags(cast.Cast.Target);
 
@@ -292,35 +330,47 @@ namespace HermesProxy.World.Server
             castRequest.ServerGUID = WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId, use.Cast.SpellID, 10000 + use.Cast.CastID.GetCounter());
             castRequest.ItemGUID = use.CastItem;
 
-            if (GetSession().GameState.CurrentClientNormalCast != null)
+            ClientCastRequest currentNormalCastItem;
+            lock (GetSession().GameState.SpellCastLock)
+                currentNormalCastItem = GetSession().GameState.CurrentClientNormalCast;
+
+            if (currentNormalCastItem != null)
             {
-                if (GetSession().GameState.CurrentClientNormalCast.HasStarted)
+                if (currentNormalCastItem.HasStarted)
                 {
                     SendCastRequestFailed(castRequest, false);
                 }
                 else
                 {
                     // Sometimes we dont clear the CurrentCast when we dont get the correct SMSG_SPELL_GO
-                    if (GetSession().GameState.CurrentClientNormalCast.Timestamp + 10000 < castRequest.Timestamp)
+                    if (currentNormalCastItem.Timestamp + 10000 < castRequest.Timestamp)
                     {
-                        Log.Print(LogType.Warn, $"Clearing CurrentClientNormalCast because of 10 sec timeout! (oldSpell:{GetSession().GameState.CurrentClientNormalCast.SpellId} newSpell:{castRequest.SpellId})");
-                        SendCastRequestFailed(GetSession().GameState.CurrentClientNormalCast, false);
-                        GetSession().GameState.CurrentClientNormalCast = null;
-                        foreach (var pending in GetSession().GameState.PendingClientCasts.ToList())
+                        Log.Print(LogType.Warn, $"Clearing CurrentClientNormalCast because of 10 sec timeout! (oldSpell:{currentNormalCastItem.SpellId} newSpell:{castRequest.SpellId})");
+                        List<ClientCastRequest> toFail;
+                        lock (GetSession().GameState.SpellCastLock)
+                        {
+                            if (ReferenceEquals(GetSession().GameState.CurrentClientNormalCast, currentNormalCastItem))
+                                GetSession().GameState.CurrentClientNormalCast = null;
+                            toFail = GetSession().GameState.PendingClientCasts.ToList();
+                            GetSession().GameState.PendingClientCasts.Clear();
+                        }
+                        SendCastRequestFailed(currentNormalCastItem, false);
+                        foreach (var pending in toFail)
                             SendCastRequestFailed(pending, false);
-                        GetSession().GameState.PendingClientCasts.Clear();
                         SendCastRequestFailed(castRequest, false);
                     }
                     else
                     {
                         castRequest.PendingLegacyPacket = BuildLegacyUseItemPacket(use);
-                        GetSession().GameState.PendingClientCasts.Add(castRequest);
+                        lock (GetSession().GameState.SpellCastLock)
+                            GetSession().GameState.PendingClientCasts.Add(castRequest);
                     }
                 }
                 return;
             }
 
-            GetSession().GameState.CurrentClientNormalCast = castRequest;
+            lock (GetSession().GameState.SpellCastLock)
+                GetSession().GameState.CurrentClientNormalCast = castRequest;
             SendPacketToServer(BuildLegacyUseItemPacket(use));
         }
         private WorldPacket BuildLegacyUseItemPacket(UseItem use)
