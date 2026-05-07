@@ -17,6 +17,7 @@
 
 using Framework.Logging;
 using System;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 
@@ -47,7 +48,18 @@ namespace Framework.Networking
             }
             catch (SocketException ex)
             {
-                Log.outException(ex);
+                if (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
+                {
+                    Log.Print(LogType.Error, $"Port {port} is already in use.?");
+                    var procName = TryGetProcessUsingPort(port);
+                    if (procName != null)
+                    {
+                        Log.Print(LogType.Error, $"Process currently holding port {port}: {procName}");
+                        Log.Print(LogType.Error, $"To free the port, open POWERSHELL as an admin and run: taskkill /F /IM {procName}.exe");
+                    }
+                }
+                else
+                    Log.outException(ex);
                 return false;
             }
 
@@ -97,6 +109,34 @@ namespace Framework.Networking
                 return;
 
             _closed = true;
+        }
+
+        private static string TryGetProcessUsingPort(int port)
+        {
+            try
+            {
+                using var proc = Process.Start(new ProcessStartInfo("netstat", "-ano")
+                {
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+                if (proc == null) return null;
+                string output = proc.StandardOutput.ReadToEnd();
+                proc.WaitForExit(3000);
+
+                foreach (var line in output.Split('\n'))
+                {
+                    if (!line.Contains($":{port} ")) continue;
+                    if (!line.Contains("LISTENING")) continue;
+
+                    var parts = line.Trim().Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length > 0 && int.TryParse(parts[^1].Trim(), out int pid))
+                        return Process.GetProcessById(pid).ProcessName;
+                }
+            }
+            catch { }
+            return null;
         }
     }
 }

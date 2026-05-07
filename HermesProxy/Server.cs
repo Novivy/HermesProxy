@@ -97,17 +97,29 @@ namespace HermesProxy
 
   
 
-            // 1. Start the listener for binary bnet RPC service connections
-            var bnetSocketServer = StartServer<BnetTcpSession>(new IPEndPoint(bindIp, Settings.BNetPort));
+            SocketManager<BnetTcpSession> bnetSocketServer;
+            SocketManager<BnetRestApiSession> restSocketServer;
+            SocketManager<RealmSocket> realmSocketServer;
+            SocketManager<WorldSocket> worldSocketServer;
+            try
+            {
+                // 1. Start the listener for binary bnet RPC service connections
+                bnetSocketServer = StartServer<BnetTcpSession>(new IPEndPoint(bindIp, Settings.BNetPort));
 
-            // 2. Start the listener for http(s) bnet RPC service like auth/"realm" connections
-            var restSocketServer = StartServer<BnetRestApiSession>(new IPEndPoint(bindIp, Settings.RestPort));
+                // 2. Start the listener for http(s) bnet RPC service like auth/"realm" connections
+                restSocketServer = StartServer<BnetRestApiSession>(new IPEndPoint(bindIp, Settings.RestPort));
 
-            // 3. Start the listener for realm connections
-            var realmSocketServer = StartServer<RealmSocket>(new IPEndPoint(bindIp, Settings.RealmPort));
+                // 3. Start the listener for realm connections
+                realmSocketServer = StartServer<RealmSocket>(new IPEndPoint(bindIp, Settings.RealmPort));
 
-            // 4. Start the listener for world connections
-            var worldSocketServer = StartServer<WorldSocket>(new IPEndPoint(bindIp, Settings.InstancePort));
+                // 4. Start the listener for world connections
+                worldSocketServer = StartServer<WorldSocket>(new IPEndPoint(bindIp, Settings.InstancePort));
+            }
+            catch (Exception ex)
+            {
+                Log.Print(LogType.Error, ex.Message);
+                return;
+            }
 
             Log.PrintAlways("HermesProxy is ready!", ConsoleColor.Green);
 
