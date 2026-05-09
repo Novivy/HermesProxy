@@ -29,14 +29,21 @@ namespace HermesProxy.World.Server
             return path;
         }
 
-        private string GetAccountCharacterMetaDataDirectory(string realm, string characterName)
+        private string GetAccountCharacterMetaDataDirectory(string realm, string characterName, ulong charLowerGuid)
         {
-            string path = Path.GetFullPath(Path.Combine("AccountData", _accountName, realm, characterName));
+            string newPath = Path.GetFullPath(Path.Combine("AccountData", _accountName, realm, $"{characterName}-{charLowerGuid}"));
 
-            if (!Directory.Exists(path))
-                Directory.CreateDirectory(path);
+            if (!Directory.Exists(newPath))
+            {
+                // Migrate old name-only directory if it exists (upgrade path for existing chars)
+                string oldPath = Path.GetFullPath(Path.Combine("AccountData", _accountName, realm, characterName));
+                if (Directory.Exists(oldPath))
+                    Directory.Move(oldPath, newPath);
+                else
+                    Directory.CreateDirectory(newPath);
+            }
 
-            return path;
+            return newPath;
         }
         
         public AccountMetaDataManager(string accountName)
@@ -82,9 +89,9 @@ namespace HermesProxy.World.Server
             Log.Print(LogType.Debug, $"Invalidated last selected character entry in '{path}'");
         }
 
-        public List<uint> GetAllCompletedQuests(string realmName, string charName)
+        public List<uint> GetAllCompletedQuests(string realmName, string charName, ulong charLowerGuid)
         {
-            var dir = GetAccountCharacterMetaDataDirectory(realmName, charName);
+            var dir = GetAccountCharacterMetaDataDirectory(realmName, charName, charLowerGuid);
             var path = Path.Combine(dir, COMPLETED_QUESTS_FILE);
 
             if (!File.Exists(path))
@@ -96,18 +103,18 @@ namespace HermesProxy.World.Server
             return completedQuestIds;
         }
 
-        public void MarkQuestAsCompleted(string realmName, string charName, uint questId)
+        public void MarkQuestAsCompleted(string realmName, string charName, ulong charLowerGuid, uint questId)
         {
-            var dir = GetAccountCharacterMetaDataDirectory(realmName, charName);
+            var dir = GetAccountCharacterMetaDataDirectory(realmName, charName, charLowerGuid);
             var path = Path.Combine(dir, COMPLETED_QUESTS_FILE);
 
             var when = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             File.AppendAllLines(path, new[]{$"{questId},{when}"}, Encoding.UTF8);
         }
 
-        public void MarkQuestAsNotCompleted(string realmName, string charName, uint questId)
+        public void MarkQuestAsNotCompleted(string realmName, string charName, ulong charLowerGuid, uint questId)
         {
-            var dir = GetAccountCharacterMetaDataDirectory(realmName, charName);
+            var dir = GetAccountCharacterMetaDataDirectory(realmName, charName, charLowerGuid);
             var path = Path.Combine(dir, COMPLETED_QUESTS_FILE);
 
             string needle = questId.ToString();
@@ -116,9 +123,9 @@ namespace HermesProxy.World.Server
             File.WriteAllLines(path, lines);
         }
 
-        public void SaveCharacterSettingsStorage(string realmName, string charName, PlayerSettings.InternalStorage settings)
+        public void SaveCharacterSettingsStorage(string realmName, string charName, ulong charLowerGuid, PlayerSettings.InternalStorage settings)
         {
-            var dir = GetAccountCharacterMetaDataDirectory(realmName, charName);
+            var dir = GetAccountCharacterMetaDataDirectory(realmName, charName, charLowerGuid);
             var path = Path.Combine(dir, SETTINGS_FILE);
 
             var options = new JsonSerializerOptions { WriteIndented = true };
@@ -126,15 +133,15 @@ namespace HermesProxy.World.Server
             File.WriteAllText(path, jsonString, Encoding.UTF8);
         }
 
-        public PlayerSettings.InternalStorage LoadCharacterSettingsStorage(string realmName, string charName)
+        public PlayerSettings.InternalStorage LoadCharacterSettingsStorage(string realmName, string charName, ulong charLowerGuid)
         {
-            var dir = GetAccountCharacterMetaDataDirectory(realmName, charName);
+            var dir = GetAccountCharacterMetaDataDirectory(realmName, charName, charLowerGuid);
             var path = Path.Combine(dir, SETTINGS_FILE);
 
             if (!File.Exists(path))
             {
                 var fallback = new PlayerSettings.InternalStorage();
-                SaveCharacterSettingsStorage(realmName, charName, fallback);
+                SaveCharacterSettingsStorage(realmName, charName, charLowerGuid, fallback);
                 return fallback; // Default fallback
             }
 

@@ -66,7 +66,7 @@ public class PlayerSettings
 
     private void Save()
     {
-        Session.AccountMetaDataMgr.SaveCharacterSettingsStorage(Session.GameState.CurrentPlayerInfo.Realm.Name, Session.GameState.CurrentPlayerInfo.Name, _internalStorage);
+        Session.AccountMetaDataMgr.SaveCharacterSettingsStorage(Session.GameState.CurrentPlayerInfo.Realm.Name, Session.GameState.CurrentPlayerInfo.Name, Session.GameState.CurrentPlayerInfo.CharacterGuid.GetLowValue(), _internalStorage);
     }
     
     public class InternalStorage
@@ -81,7 +81,7 @@ public class PlayerSettings
 
     public void Reload()
     {
-        _internalStorage = Session.AccountMetaDataMgr.LoadCharacterSettingsStorage(Session.GameState.CurrentPlayerInfo.Realm.Name, Session.GameState.CurrentPlayerInfo.Name);
+        _internalStorage = Session.AccountMetaDataMgr.LoadCharacterSettingsStorage(Session.GameState.CurrentPlayerInfo.Realm.Name, Session.GameState.CurrentPlayerInfo.Name, Session.GameState.CurrentPlayerInfo.CharacterGuid.GetLowValue());
     }
 }
 
@@ -98,7 +98,7 @@ public class CompletedQuestTracker
 
     public void MarkQuestAsNotCompleted(uint questQuestId)
     {
-        Session.AccountMetaDataMgr.MarkQuestAsNotCompleted(Session.GameState.CurrentPlayerInfo.Realm.Name, Session.GameState.CurrentPlayerInfo.Name, questQuestId);
+        Session.AccountMetaDataMgr.MarkQuestAsNotCompleted(Session.GameState.CurrentPlayerInfo.Realm.Name, Session.GameState.CurrentPlayerInfo.Name, Session.GameState.CurrentPlayerInfo.CharacterGuid.GetLowValue(), questQuestId);
 
         var questBit = GameData.GetUniqueQuestBit(questQuestId);
         if (questBit.HasValue)
@@ -109,7 +109,7 @@ public class CompletedQuestTracker
 
     public void MarkQuestAsCompleted(uint questQuestId)
     {
-        Session.AccountMetaDataMgr.MarkQuestAsCompleted(Session.GameState.CurrentPlayerInfo.Realm.Name, Session.GameState.CurrentPlayerInfo.Name, questQuestId);
+        Session.AccountMetaDataMgr.MarkQuestAsCompleted(Session.GameState.CurrentPlayerInfo.Realm.Name, Session.GameState.CurrentPlayerInfo.Name, Session.GameState.CurrentPlayerInfo.CharacterGuid.GetLowValue(), questQuestId);
 
         var questBit = GameData.GetUniqueQuestBit(questQuestId);
         if (questBit.HasValue)
@@ -120,7 +120,7 @@ public class CompletedQuestTracker
 
     public void Reload()
     {
-        var questIds = Session.AccountMetaDataMgr.GetAllCompletedQuests(Session.GameState.CurrentPlayerInfo.Realm.Name, Session.GameState.CurrentPlayerInfo.Name);
+        var questIds = Session.AccountMetaDataMgr.GetAllCompletedQuests(Session.GameState.CurrentPlayerInfo.Realm.Name, Session.GameState.CurrentPlayerInfo.Name, Session.GameState.CurrentPlayerInfo.CharacterGuid.GetLowValue());
 
         _cachedQuestCompleted = new Dictionary<int, ulong>();
         foreach (uint questId in questIds)
