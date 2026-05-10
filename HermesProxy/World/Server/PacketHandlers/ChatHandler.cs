@@ -110,10 +110,21 @@ namespace HermesProxy.World.Server
             var toBeSentTextParts = ConvertTextMessageIntoMaxLengthParts(channel.Text);
             foreach (string text in toBeSentTextParts)
             {
-                if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
-                    GetSession().WorldClient.SendMessageChatWotLK(ChatMessageTypeWotLK.Channel, channel.Language, text, channel.Target, "");
+                // Server only executes dot-commands sent as Say; redirect so the command fires instead of posting to channel
+                if (text.StartsWith("."))
+                {
+                    if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
+                        GetSession().WorldClient.SendMessageChatWotLK(ChatMessageTypeWotLK.Say, channel.Language, text, "", "");
+                    else
+                        GetSession().WorldClient.SendMessageChatVanilla(ChatMessageTypeVanilla.Say, channel.Language, text, "", "");
+                }
                 else
-                    GetSession().WorldClient.SendMessageChatVanilla(ChatMessageTypeVanilla.Channel, channel.Language, text, channel.Target, "");
+                {
+                    if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
+                        GetSession().WorldClient.SendMessageChatWotLK(ChatMessageTypeWotLK.Channel, channel.Language, text, channel.Target, "");
+                    else
+                        GetSession().WorldClient.SendMessageChatVanilla(ChatMessageTypeVanilla.Channel, channel.Language, text, channel.Target, "");
+                }
             }
         }
 
