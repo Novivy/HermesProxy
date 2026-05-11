@@ -1,4 +1,4 @@
-﻿using HermesProxy.Enums;
+using HermesProxy.Enums;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Objects;
 using HermesProxy.World.Server.Packets;
@@ -28,7 +28,7 @@ namespace HermesProxy.World.Client
             SendPacketToServer(packet2);
         }
 
-        AuctionItem ReadAuctionItem(WorldPacket packet)
+        AuctionItem ReadAuctionItem(WorldPacket packet, uint index)
         {
             AuctionItem item = new AuctionItem();
             item.AuctionID = packet.ReadUInt32();
@@ -87,10 +87,7 @@ namespace HermesProxy.World.Client
             AuctionListMyItemsResult auction = new AuctionListMyItemsResult(packet.GetUniversalOpcode(false));
             uint count = packet.ReadUInt32();
             for (uint i = 0; i < count; i++)
-            {
-                AuctionItem item = ReadAuctionItem(packet);
-                auction.Items.Add(item);
-            }
+                auction.Items.Add(ReadAuctionItem(packet, i));
             auction.TotalItemsCount = packet.ReadInt32();
             if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_3_0_7561))
                 auction.DesiredDelay = packet.ReadUInt32();
@@ -104,7 +101,7 @@ namespace HermesProxy.World.Client
             uint count = packet.ReadUInt32();
             for (uint i = 0; i < count; i++)
             {
-                AuctionItem item = ReadAuctionItem(packet);
+                AuctionItem item = ReadAuctionItem(packet, i);
                 item.CensorServerSideInfo = true;
                 auction.Items.Add(item);
             }
@@ -121,11 +118,12 @@ namespace HermesProxy.World.Client
             auction.AuctionID = packet.ReadUInt32();
             auction.Command = (AuctionHouseAction)packet.ReadUInt32();
             auction.ErrorCode = (AuctionHouseError)packet.ReadUInt32();
+
             switch (auction.ErrorCode)
             {
                 case AuctionHouseError.Ok:
                     if (auction.Command == AuctionHouseAction.Bid)
-                       auction.MinIncrement = packet.ReadUInt32();
+                        auction.MinIncrement = packet.ReadUInt32();
                     break;
                 case AuctionHouseError.Inventory:
                     auction.BagResult = LegacyVersion.ConvertInventoryResult(packet.ReadUInt32());
@@ -136,6 +134,7 @@ namespace HermesProxy.World.Client
                     auction.MinIncrement = packet.ReadUInt32();
                     break;
             }
+
             SendPacketToClient(auction);
         }
 

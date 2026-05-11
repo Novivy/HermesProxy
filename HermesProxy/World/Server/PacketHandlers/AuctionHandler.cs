@@ -1,4 +1,4 @@
-﻿using Framework.Constants;
+using Framework.Constants;
 using Framework.Logging;
 using HermesProxy.Enums;
 using HermesProxy.World;
@@ -97,15 +97,9 @@ namespace HermesProxy.World.Server
 
                 if (modernInventoryFlag == uint.MaxValue)
                     return -1;
-                
                 for (int i = 0; i < 32; i++)
-                {
                     if ((modernInventoryFlag & (1 << i)) > 0)
-                    {
                         return i;
-                    }
-                }
-
                 return -1;
             }
         }
@@ -117,15 +111,9 @@ namespace HermesProxy.World.Server
 
             if (modernInventoryFlag == uint.MaxValue)
                 return -1;
-
             for (byte i = 0; i < 32; i++)
-            {
                 if ((modernInventoryFlag & (1u << i)) > 0)
-                {
                     return i;
-                }
-            }
-
             return -1;
         }
 
@@ -134,54 +122,28 @@ namespace HermesProxy.World.Server
         {
             uint expireTime = auction.ExpireTime;
 
-            // auction durations were increased in tbc
-            // server ignores packet if you send wrong duration
-            if (LegacyVersion.ExpansionVersion <= 1 &&
-                ModernVersion.ExpansionVersion > 1)
+            if (LegacyVersion.ExpansionVersion <= 1 && ModernVersion.ExpansionVersion > 1)
             {
                 switch (expireTime)
                 {
-                    case 1 * 12 * 60: // 720
-                    {
-                        expireTime = 1 * 2 * 60; // 120
-                        break;
-                    }
-                    case 2 * 12 * 60: // 1440
-                    {
-                        expireTime = 4 * 2 * 60; // 480
-                        break;
-                    }
-                    case 4 * 12 * 60: // 2880
-                    {
-                        expireTime = 12 * 2 * 60; // 1440
-                        break;
-                    }
+                    case 1 * 12 * 60: expireTime = 1 * 2 * 60; break;
+                    case 2 * 12 * 60: expireTime = 4 * 2 * 60; break;
+                    case 4 * 12 * 60: expireTime = 12 * 2 * 60; break;
                 }
             }
-            else if (LegacyVersion.ExpansionVersion > 1 &&
-                     ModernVersion.ExpansionVersion <= 1)
+            else if (LegacyVersion.ExpansionVersion > 1 && ModernVersion.ExpansionVersion <= 1)
             {
                 switch (expireTime)
                 {
-                    case 1 * 2 * 60:
-                    {
-                        expireTime = 1 * 12 * 60;
-                        break;
-                    }
-                    case 4 * 2 * 60:
-                    {
-                        expireTime = 2 * 12 * 60;
-                        break;
-                    }
-                    case 12 * 2 * 60:
-                    {
-                        expireTime = 4 * 12 * 60;
-                        break;
-                    }
+                    case 1 * 2 * 60:  expireTime = 1 * 12 * 60; break;
+                    case 4 * 2 * 60:  expireTime = 2 * 12 * 60; break;
+                    case 12 * 2 * 60: expireTime = 4 * 12 * 60; break;
                 }
             }
 
-            if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V3_2_2a_10505))
+            bool isPreV3_2_2a = LegacyVersion.RemovedInVersion(ClientVersionBuild.V3_2_2a_10505);
+
+            if (isPreV3_2_2a)
             {
                 foreach (var item in auction.Items)
                 {
@@ -191,6 +153,10 @@ namespace HermesProxy.World.Server
                     packet.WriteUInt32((uint)auction.MinBid);
                     packet.WriteUInt32((uint)auction.BuyoutPrice);
                     packet.WriteUInt32(expireTime);
+                    // Append UseCount as an optional trailing field read by our modified CMaNGOS.
+                    // UseCount > 0 means "sell only UseCount items; split the rest back to inventory."
+                    if (item.UseCount > 0)
+                        packet.WriteUInt32(item.UseCount);
                     SendPacketToServer(packet);
                 }
             }
