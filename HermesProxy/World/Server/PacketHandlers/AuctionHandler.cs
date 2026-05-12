@@ -23,8 +23,11 @@ namespace HermesProxy.World.Server
         [PacketHandler(Opcode.CMSG_AUCTION_LIST_BIDDED_ITEMS)]
         void HandleAuctionListBidderItems(AuctionListBidderItems auction)
         {
+            var guid = !auction.Auctioneer.IsEmpty()
+                ? auction.Auctioneer
+                : GetSession().GameState.CurrentInteractedWithNPC;
             WorldPacket packet = new WorldPacket(Opcode.CMSG_AUCTION_LIST_BIDDED_ITEMS);
-            packet.WriteGuid(auction.Auctioneer.To64());
+            packet.WriteGuid(guid.To64());
             packet.WriteUInt32(auction.Offset);
             packet.WriteInt32(auction.AuctionItemIDs.Count);
             foreach (var itemId in auction.AuctionItemIDs)
@@ -35,8 +38,13 @@ namespace HermesProxy.World.Server
         [PacketHandler(Opcode.CMSG_AUCTION_LIST_OWNED_ITEMS)]
         void HandleAuctionListOwnerItems(AuctionListOwnerItems auction)
         {
+            // The modern client sends an empty auctioneer GUID in this packet.
+            // Fall back to the NPC we last interacted with so CMaNGOS can validate the request.
+            var guid = !auction.Auctioneer.IsEmpty()
+                ? auction.Auctioneer
+                : GetSession().GameState.CurrentInteractedWithNPC;
             WorldPacket packet = new WorldPacket(Opcode.CMSG_AUCTION_LIST_OWNED_ITEMS);
-            packet.WriteGuid(auction.Auctioneer.To64());
+            packet.WriteGuid(guid.To64());
             packet.WriteUInt32(auction.Offset);
             SendPacketToServer(packet);
         }
