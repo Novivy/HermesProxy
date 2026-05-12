@@ -923,7 +923,12 @@ namespace HermesProxy
         {
             if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V2_0_1_6180))
             {
-                activeFlags = 0;
+                // CMaNGOS-classic does not encode effect-index bits in vanilla aura flags.
+                // It uses 0x04 (AFLAG_UNK3) as a "positive aura" marker and 0x08 (AFLAG_UNK4)
+                // as a "negative aura" marker, neither of which are effect-index bits.
+                // Default activeFlags=1 so the 1.14 client treats effect 0 as active,
+                // which is correct for virtually all vanilla auras (tracking, buffs, debuffs).
+                activeFlags = 1;
                 newFlags = AuraFlagsModern.None;
 
                 if (slot >= 32)
@@ -933,13 +938,6 @@ namespace HermesProxy
 
                 if (oldFlags.HasAnyFlag(AuraFlagsVanilla.Cancelable))
                     newFlags |= AuraFlagsModern.Cancelable;
-
-                if (oldFlags.HasAnyFlag(AuraFlagsVanilla.EffectIndex0))
-                    activeFlags |= 1;
-                if (oldFlags.HasAnyFlag(AuraFlagsVanilla.EffectIndex1))
-                    activeFlags |= 2;
-                if (oldFlags.HasAnyFlag(AuraFlagsVanilla.EffectIndex2))
-                    activeFlags |= 4;
             }
             else if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V3_0_2_9056))
             {
