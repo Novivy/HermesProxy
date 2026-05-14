@@ -106,7 +106,7 @@ namespace HermesProxy.World.Client
                 player.Status = GroupMemberOnlineStatus.Online;
                 party.PlayerList.Add(player);
 
-                bool allAssist = true;
+                bool allAssist = player.Flags.HasAnyFlag(GroupMemberFlags.Assistant);
                 for (uint i = 0; i < membersCount; i++)
                 {
                     PartyPlayerInfo member = new PartyPlayerInfo();
@@ -196,7 +196,7 @@ namespace HermesProxy.World.Client
                 player.Status = GroupMemberOnlineStatus.Online;
                 party.PlayerList.Add(player);
 
-                bool allAssist = true;
+                bool allAssist = player.Flags.HasAnyFlag(GroupMemberFlags.Assistant);
                 for (uint i = 0; i < membersCount; i++)
                 {
                     PartyPlayerInfo member = new PartyPlayerInfo();

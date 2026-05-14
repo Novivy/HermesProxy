@@ -121,6 +121,39 @@ namespace HermesProxy.World.Server
         [PacketHandler(Opcode.CMSG_UPDATE_RAID_TARGET)]
         void HandleUpdateRaidTarget(UpdateRaidTarget update)
         {
+            // Symbol -1 (0xFF) is a request for the icon list - always forward, any member can request
+            if (update.Symbol != -1)
+            {
+                int partyIdx = update.PartyIndex >= 0 && update.PartyIndex < 2 ? update.PartyIndex : 0;
+                var group = GetSession().GameState.CurrentGroups[partyIdx];
+                if (group == null)
+                    return;
+
+                bool isLeader = GetSession().GameState.CurrentPlayerGuid == group.LeaderGUID;
+                if (!isLeader)
+                {
+                    bool isAssistant = false;
+                    foreach (var p in group.PlayerList)
+                    {
+                        if (p.GUID == GetSession().GameState.CurrentPlayerGuid && p.Flags.HasAnyFlag(GroupMemberFlags.Assistant))
+                        {
+                            isAssistant = true;
+                            break;
+                        }
+                    }
+                    bool everyoneAssistant = group.PartyFlags.HasAnyFlag(GroupFlags.EveryoneAssistant);
+                    if (!isAssistant && !everyoneAssistant)
+                    {
+                        PartyCommandResult err = new PartyCommandResult();
+                        err.Name = "";
+                        err.Command = 0;
+                        err.Result = (byte)PartyResultModern.NotLeader;
+                        SendPacket(err);
+                        return;
+                    }
+                }
+            }
+
             WorldPacket packet = new WorldPacket(Opcode.MSG_RAID_TARGET_UPDATE);
             packet.WriteInt8(update.Symbol);
             packet.WriteGuid(update.Target.To64());
