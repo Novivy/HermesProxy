@@ -17,7 +17,12 @@ namespace HermesProxy.World.Client
             uint serial = packet.ReadUInt32();
             if ((serial & 0x80000000) != 0)
             {
-                Log.Print(LogType.Debug, $"[KEEPALIVE] Received keep-alive PONG from backend (serial=0x{serial:X8}), not forwarding to modern client");
+                uint plain = serial & 0x7FFFFFFFu;
+                long now = Environment.TickCount64;
+                long rtt = _lastKeepAlivePingSentTickMs == 0 ? -1 : now - _lastKeepAlivePingSentTickMs;
+                _lastKeepAlivePongTickMs = now;
+                _lastKeepAlivePongSerialPlain = plain;
+                Log.Print(LogType.Debug, $"[KEEPALIVE] Received keep-alive PONG from backend (serial=0x{serial:X8}, rtt~{rtt}ms), not forwarding to modern client");
                 return;
             }
             SendPacketToClient(new Pong(serial));

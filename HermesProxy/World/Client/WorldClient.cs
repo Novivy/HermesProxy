@@ -33,6 +33,17 @@ namespace HermesProxy.World.Client
         uint _keepAlivePingSerial;
         const int KeepAliveIntervalMs = 30000;
 
+        // --- Diagnostics: tracked so a disconnect log can show *why* the connection died ---
+        long _connectedAtTickMs;
+        long _lastReceivedTickMs;
+        Opcode _lastReceivedOpcode = Opcode.MSG_NULL_ACTION;
+        long _totalPacketsReceived;
+        long _totalBytesReceived;
+        long _lastKeepAlivePingSentTickMs;
+        long _lastKeepAlivePongTickMs;
+        uint _lastKeepAlivePongSerialPlain; // pong serial with the 0x80000000 flag bit stripped
+        long _totalSendBytes;
+
         // packet order is not always the same as new client, sometimes we need to delay packet until another one
         Dictionary<Opcode, List<WorldPacket>> _delayedPacketsToServer;
         Dictionary<Opcode, List<ServerPacket>> _delayedPacketsToClient;
@@ -137,6 +148,9 @@ namespace HermesProxy.World.Client
                 _clientSocket.ReceiveBufferSize = 65535;
                 _clientSocket.NoDelay = true;
 
+                _connectedAtTickMs = Environment.TickCount64;
+                _lastReceivedTickMs = _connectedAtTickMs;
+
                 Task.Run(ReceiveLoop);
             }
             catch (Exception ex)
@@ -147,7 +161,52 @@ namespace HermesProxy.World.Client
             }
         }
 
-        private async Task<bool> ReceiveBufferFully(ArraySegment<byte> bufferToFill)
+        // Snapshot of network state used in disconnect logs to identify whether the
+        // connection went silent (server stalled / NAT dropped) vs threw a socket error.
+        private string GetDiagSnapshot()
+        {
+            long now = Environment.TickCount64;
+            long sinceConnect = _connectedAtTickMs == 0 ? -1 : now - _connectedAtTickMs;
+            long sinceLastRecv = _lastReceivedTickMs == 0 ? -1 : now - _lastReceivedTickMs;
+            long sinceLastPing = _lastKeepAlivePingSentTickMs == 0 ? -1 : now - _lastKeepAlivePingSentTickMs;
+            long sinceLastPong = _lastKeepAlivePongTickMs == 0 ? -1 : now - _lastKeepAlivePongTickMs;
+            uint pingSerialPlain = _keepAlivePingSerial; // already plain (we OR the flag bit only when sending)
+            uint pongSerialPlain = _lastKeepAlivePongSerialPlain;
+            long outstandingPings = pingSerialPlain > pongSerialPlain ? pingSerialPlain - pongSerialPlain : 0;
+
+            string sockInfo = "n/a";
+            try
+            {
+                if (_clientSocket != null)
+                {
+                    string remote;
+                    try { remote = _clientSocket.RemoteEndPoint?.ToString() ?? "?"; } catch { remote = "?"; }
+                    int avail; try { avail = _clientSocket.Available; } catch { avail = -1; }
+                    sockInfo = $"connected={_clientSocket.Connected}, available={avail}, remote={remote}";
+                }
+            }
+            catch { /* socket may be disposed */ }
+
+            string playerInfo = "?";
+            try
+            {
+                var sess = _globalSession;
+                if (sess != null)
+                {
+                    string guidStr = sess.GameState?.CurrentPlayerGuid?.ToString() ?? "none";
+                    playerInfo = $"user={sess.Username}, playerGuid={guidStr}";
+                }
+            }
+            catch { }
+
+            return $"[DIAG] {playerInfo}; connDuration={sinceConnect}ms, sinceLastRecv={sinceLastRecv}ms, " +
+                   $"lastOpcode={_lastReceivedOpcode}, pktsRecv={_totalPacketsReceived}, bytesRecv={_totalBytesReceived}, bytesSent={_totalSendBytes}, " +
+                   $"keepAlive: lastPingSerial=0x{(pingSerialPlain | 0x80000000u):X8} sent={sinceLastPing}ms ago, " +
+                   $"lastPongSerialPlain=0x{pongSerialPlain:X8} recv={sinceLastPong}ms ago, outstandingPings={outstandingPings}; " +
+                   $"socket: {sockInfo}";
+        }
+
+        private async Task<bool> ReceiveBufferFully(ArraySegment<byte> bufferToFill, string contextLabel)
         {
             int alreadyReceived = 0;
             while (alreadyReceived < bufferToFill.Count)
@@ -155,8 +214,14 @@ namespace HermesProxy.World.Client
                 var tmpArrayBuffer = new ArraySegment<byte>(bufferToFill.Array!, alreadyReceived + bufferToFill.Offset, bufferToFill.Count - alreadyReceived);
                 int receive = await _clientSocket.ReceiveAsync(tmpArrayBuffer, SocketFlags.None);
                 if (receive == 0)
+                {
+                    Log.PrintNet(LogType.Error, LogNetDir.S2P,
+                        $"ReceiveBufferFully ({contextLabel}) returned 0 (socket closed by peer): partial={alreadyReceived}/{bufferToFill.Count} bytes");
                     return false;
+                }
                 alreadyReceived += receive;
+                _totalBytesReceived += receive;
+                _lastReceivedTickMs = Environment.TickCount64;
             }
 
             return true;
@@ -169,9 +234,10 @@ namespace HermesProxy.World.Client
                 while (true)
                 {
                     byte[] headerBuffer = new byte[LegacyServerPacketHeader.StructSize];
-                    if (!await ReceiveBufferFully(headerBuffer))
+                    if (!await ReceiveBufferFully(headerBuffer, "header"))
                     {
                         Log.PrintNet(LogType.Network, LogNetDir.S2P, "Socket Closed By GameWorldServer (header)");
+                        Log.Print(LogType.Error, $"(DISCONNECT) {GetDiagSnapshot()}");
                         if (_isSuccessful == null)
                             _isSuccessful = false;
                         else
@@ -189,6 +255,9 @@ namespace HermesProxy.World.Client
                     header.Read(headerBuffer);
                     ushort packetSize = header.Size;
 
+                    Opcode previewOpcode = Opcode.MSG_NULL_ACTION;
+                    try { previewOpcode = LegacyVersion.GetUniversalOpcode((uint)header.Opcode); } catch { /* unknown */ }
+
                     if (packetSize != 0)
                     {
                         byte[] buffer = new byte[packetSize];
@@ -197,9 +266,11 @@ namespace HermesProxy.World.Client
                         buffer[0] = headerBuffer[2];
                         buffer[1] = headerBuffer[3];
 
-                        if (!await ReceiveBufferFully(new ArraySegment<byte>(buffer, 2, buffer.Length - 2)))
+                        if (!await ReceiveBufferFully(new ArraySegment<byte>(buffer, 2, buffer.Length - 2),
+                                                      $"payload(opcode={previewOpcode}/0x{header.Opcode:X4}, size={packetSize})"))
                         {
                             Log.PrintNet(LogType.Network, LogNetDir.S2P, "Socket Closed By GameWorldServer (payload)");
+                            Log.Print(LogType.Error, $"(DISCONNECT) {GetDiagSnapshot()}");
                             if (_isSuccessful == null)
                                 _isSuccessful = false;
                             else if (GetSession().WorldClient == this)
@@ -210,20 +281,34 @@ namespace HermesProxy.World.Client
                             return;
                         }
 
+                        _lastReceivedOpcode = previewOpcode;
+                        _totalPacketsReceived++;
+
                         WorldPacket packet = new WorldPacket(buffer);
                         packet.SetReceiveTime(Environment.TickCount);
                         HandlePacket(packet);
+                    }
+                    else
+                    {
+                        // empty payload: still counts as a received packet (header-only)
+                        _lastReceivedOpcode = previewOpcode;
+                        _totalPacketsReceived++;
                     }
                 }
             }
             catch(Exception e)
             {
-                Log.PrintNet(LogType.Error, LogNetDir.S2P, $"Packet Read Error: {e.Message}{Environment.NewLine}{e.StackTrace}");
+                var sockEx = e as System.Net.Sockets.SocketException;
+                string sockExDetail = sockEx != null
+                    ? $" SocketErrorCode={sockEx.SocketErrorCode} ({(int)sockEx.SocketErrorCode}), NativeErrorCode={sockEx.NativeErrorCode}"
+                    : "";
+                Log.PrintNet(LogType.Error, LogNetDir.S2P, $"Packet Read Error: {e.Message}{sockExDetail}{Environment.NewLine}{e.StackTrace}");
+                Log.Print(LogType.Error, $"(DISCONNECT) {GetDiagSnapshot()}");
                 if (_isSuccessful == null)
                     _isSuccessful = false;
                 else
                 {
-                    Log.Print(LogType.Error, $"(DISCONNECT) Exception in ReceiveLoop, disconnecting and propagating to modern client via OnDisconnect() (2). Exception: {e.Message}");
+                    Log.Print(LogType.Error, $"(DISCONNECT) Exception in ReceiveLoop, disconnecting and propagating to modern client via OnDisconnect() (2). Exception: {e.Message}{sockExDetail}");
                     Disconnect();
                     GetSession().OnDisconnect();
                 }
@@ -253,11 +338,16 @@ namespace HermesProxy.World.Client
 
                 buffer.WriteBytes(packet.GetData(), packet.GetSize());
 
-                _clientSocket.Send(buffer.GetData(), SocketFlags.None);
+                int sent = _clientSocket.Send(buffer.GetData(), SocketFlags.None);
+                _totalSendBytes += sent;
             }
             catch (Exception ex)
             {
-                Log.PrintNet(LogType.Error, LogNetDir.P2S, $"Packet Write Error: {ex.Message}");
+                var sockEx = ex as System.Net.Sockets.SocketException;
+                string sockExDetail = sockEx != null
+                    ? $" SocketErrorCode={sockEx.SocketErrorCode} ({(int)sockEx.SocketErrorCode})"
+                    : "";
+                Log.PrintNet(LogType.Error, LogNetDir.P2S, $"Packet Write Error: {ex.Message}{sockExDetail}. {GetDiagSnapshot()}");
                 if (_isSuccessful == null)
                     _isSuccessful = false;
             }
@@ -549,9 +639,31 @@ namespace HermesProxy.World.Client
                 return;
             }
 
+            // Detect unanswered pings BEFORE sending the next one — this is the earliest in-process
+            // signal that the TCP connection is half-open (NAT timeout / ISP routing flap / silent server stall).
+            uint priorPlain = _keepAlivePingSerial; // last sent (plain), 0 on first call
+            uint pongPlain = _lastKeepAlivePongSerialPlain;
+            long outstanding = priorPlain > pongPlain ? priorPlain - pongPlain : 0;
+            if (outstanding >= 1 && priorPlain != 0)
+            {
+                long sincePong = _lastKeepAlivePongTickMs == 0 ? -1 : Environment.TickCount64 - _lastKeepAlivePongTickMs;
+                long sinceRecv = _lastReceivedTickMs == 0 ? -1 : Environment.TickCount64 - _lastReceivedTickMs;
+                // LogType.Error so it survives ErrorOnlyMode (release without a debugger). This is the
+                // earliest in-process signal of a half-open TCP — we want it in launcher.log.
+                Log.Print(LogType.Error,
+                    $"(KEEPALIVE) Backend has not PONGed our last {outstanding} ping(s). " +
+                    $"sinceLastPong={sincePong}ms, sinceLastRecvAny={sinceRecv}ms, lastOpcodeRecv={_lastReceivedOpcode}. " +
+                    $"Connection may be stalled — TCP recv will time out next.");
+            }
+
             _keepAlivePingSerial++;
             uint serial = _keepAlivePingSerial | 0x80000000u;
-            Log.Print(LogType.Debug, $"(KEEPALIVE) Sending keep-alive PING to backend (serial=0x{serial:X8})");
+            _lastKeepAlivePingSentTickMs = Environment.TickCount64;
+
+            // Rolling heartbeat snapshot — gives us a periodic data point even when nothing is wrong,
+            // so post-incident logs show what "healthy" looked like seconds before the DC.
+            Log.Print(LogType.Debug, $"(KEEPALIVE) Sending keep-alive PING to backend (serial=0x{serial:X8}). {GetDiagSnapshot()}");
+
             WorldPacket packet = new WorldPacket(Opcode.CMSG_PING);
             packet.WriteUInt32(serial);
             packet.WriteUInt32(0);
