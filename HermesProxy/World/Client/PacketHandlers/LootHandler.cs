@@ -26,6 +26,7 @@ namespace HermesProxy.World.Client
             loot.LootMethod = GetSession().GameState.GetCurrentLootMethod();
 
             loot.Coins = packet.ReadUInt32();
+            GetSession().GameState.LastLootCoins = loot.Coins;
 
             var itemsCount = packet.ReadUInt8();
             for (var i = 0; i < itemsCount; ++i)
@@ -73,11 +74,25 @@ namespace HermesProxy.World.Client
             if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
                 loot.SoleLooter = packet.ReadBool();
             SendPacketToClient(loot);
+            GetSession().GameState.LastLootCoins = 0;
         }
 
         [PacketHandler(Opcode.SMSG_LOOT_CLEAR_MONEY)]
         void HandleLootCelarMoney(WorldPacket packet)
         {
+            // Legacy server only sends SMSG_LOOT_MONEY_NOTIFY for group loot.
+            // For solo loot the modern client needs a synthesized notify or no
+            // "You loot X gold" chat message appears.
+            if (GetSession().GameState.LastLootCoins > 0 &&
+                GetSession().GameState.GetCurrentGroupSize() == 0)
+            {
+                LootMoneyNotify notify = new();
+                notify.Money = GetSession().GameState.LastLootCoins;
+                notify.SoleLooter = true;
+                SendPacketToClient(notify);
+            }
+            GetSession().GameState.LastLootCoins = 0;
+
             CoinRemoved loot = new();
             loot.LootObj = GetSession().GameState.LastLootTargetGuid.ToLootGuid();
             SendPacketToClient(loot);
