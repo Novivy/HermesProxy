@@ -1671,6 +1671,13 @@ namespace HermesProxy.World.Client
                         guid == GetSession().GameState.CurrentPlayerGuid && updateData.CreateData.MoveSpline == null)
                         updateData.UnitData.Flags &= ~(uint)UnitFlags.ServerControlled;
 
+                    // Modern client (1.14/2.5) refuses to send bag/equip CMSGs when UNIT_FLAG_TAXI_FLIGHT is set.
+                    // 1.12 client allowed those actions during taxi. Strip the flag on the local player so the
+                    // modern UI lets the action through; the existing SMSG_CONTROL_UPDATE (HasControl=false)
+                    // still keeps movement locked to the taxi spline.
+                    if (guid == GetSession().GameState.CurrentPlayerGuid)
+                        updateData.UnitData.Flags &= ~(uint)UnitFlags.TaxiFlight;
+
                     if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V3_0_2_9056) &&
                         updateData.UnitData.PvpFlags == null)
                         updateData.UnitData.PvpFlags = ReadPvPFlags(updates);

@@ -584,6 +584,15 @@ namespace HermesProxy.World.Client
                     GetSession().GameState.IsWaitingForTaxiStart = false;
                 }
                 GetSession().GameState.IsInTaxiFlight = true;
+
+                // Modern client (1.14/2.5) gates bag/equip UI on HasFullControlOfMyCharacter,
+                // which is false while client control is removed. The taxi spline is
+                // server-authoritative and ignores client input, so restoring control here
+                // unlocks the bag UI without letting the player deviate from the path.
+                ControlUpdate restoreControl = new();
+                restoreControl.Guid = guid;
+                restoreControl.HasControl = true;
+                SendPacketToClient(restoreControl);
             }
         }
     }
