@@ -81,7 +81,7 @@ namespace HermesProxy.World.Server
             if (targetFlags.HasAnyFlag(SpellCastTargetFlags.String))
                 packet.WriteCString(target.Name);
         }
-        public void SendCastRequestFailed(ClientCastRequest castRequest, bool isPet)
+        public void SendCastRequestFailed(ClientCastRequest castRequest, bool isPet, SpellCastResultClassic reason = SpellCastResultClassic.SpellInProgress)
         {
             if (castRequest == null || castRequest.ServerGUID == null)
                 return;
@@ -97,7 +97,7 @@ namespace HermesProxy.World.Server
             {
                 PetCastFailed failed = new();
                 failed.SpellID = castRequest.SpellId;
-                failed.Reason = (uint)SpellCastResultClassic.SpellInProgress;
+                failed.Reason = (uint)reason;
                 failed.CastID = castRequest.ServerGUID;
                 SendPacket(failed);
             }
@@ -106,14 +106,35 @@ namespace HermesProxy.World.Server
                 CastFailed failed = new();
                 failed.SpellID = castRequest.SpellId;
                 failed.SpellXSpellVisualID = castRequest.SpellXSpellVisualId;
-                failed.Reason = (uint)SpellCastResultClassic.SpellInProgress;
+                failed.Reason = (uint)reason;
                 failed.CastID = castRequest.ServerGUID;
                 SendPacket(failed);
-            }    
+            }
+        }
+
+        private bool RejectIfOnTaxi(uint spellId, uint spellVisualId, WowGuid128 clientGuid, bool isPet)
+        {
+            if (!GetSession().GameState.IsInTaxiFlight)
+                return false;
+            ClientCastRequest castRequest = new ClientCastRequest();
+            castRequest.Timestamp = Environment.TickCount;
+            castRequest.SpellId = spellId;
+            castRequest.SpellXSpellVisualId = spellVisualId;
+            castRequest.ClientGUID = clientGuid;
+            castRequest.ServerGUID = WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId, spellId, 20000 + clientGuid.GetCounter());
+            SendCastRequestFailed(castRequest, isPet, SpellCastResultClassic.NotOnTaxi);
+            return true;
         }
         [PacketHandler(Opcode.CMSG_CAST_SPELL)]
         void HandleCastSpell(CastSpell cast)
         {
+            // Modern client unlocks the cast UI during taxi (we strip TAXI_FLIGHT + restore
+            // HasControl so bag/equip works). The legacy server reacts to a cast by removing
+            // the temporary mount aura, which kills the wyvern/gryphon visual mid-flight.
+            // Reject casts at the proxy before they reach the server.
+            if (RejectIfOnTaxi(cast.Cast.SpellID, cast.Cast.SpellXSpellVisualID, cast.Cast.CastID, false))
+                return;
+
             // Artificial lag is needed for spell packets,
             // or spells will bug out and glow if spammed.
             if (Settings.ServerSpellDelay > 0)
@@ -249,6 +270,9 @@ namespace HermesProxy.World.Server
         [PacketHandler(Opcode.CMSG_PET_CAST_SPELL)]
         void HandlePetCastSpell(PetCastSpell cast)
         {
+            if (RejectIfOnTaxi(cast.Cast.SpellID, cast.Cast.SpellXSpellVisualID, cast.Cast.CastID, true))
+                return;
+
             // Artificial lag is needed for spell packets,
             // or spells will bug out and glow if spammed.
             if (Settings.ServerSpellDelay > 0)
@@ -317,6 +341,9 @@ namespace HermesProxy.World.Server
         [PacketHandler(Opcode.CMSG_USE_ITEM)]
         void HandleUseItem(UseItem use)
         {
+            if (RejectIfOnTaxi(use.Cast.SpellID, use.Cast.SpellXSpellVisualID, use.Cast.CastID, false))
+                return;
+
             // Artificial lag is needed for spell packets,
             // or spells will bug out and glow if spammed.
             if (Settings.ServerSpellDelay > 0)
@@ -430,13 +457,52 @@ namespace HermesProxy.World.Server
         [PacketHandler(Opcode.CMSG_CANCEL_AURA)]
         void HandleCancelAura(CancelAura aura)
         {
+            // During taxi the modern client auto-fires this for the mount aura whenever the
+            // player tries to cast or use an item, which makes the legacy server strip the
+            // wyvern/gryphon visual mid-flight. Swallow the cancel for mount auras and
+            // re-push the mount display so the client redraws it (the client locally clears
+            // the visual before waiting for server confirmation).
+            if (GetSession().GameState.IsInTaxiFlight && GameData.MountAuras.Contains(aura.SpellID))
+            {
+                RefreshTaxiMountDisplay();
+                return;
+            }
+
             WorldPacket packet = new WorldPacket(Opcode.CMSG_CANCEL_AURA);
             packet.WriteUInt32(aura.SpellID);
             SendPacketToServer(packet);
         }
+        private void RefreshTaxiMountDisplay()
+        {
+            WowGuid128 guid = GetSession().GameState.CurrentPlayerGuid;
+            int mountDisplayId = GetSession().GameState.GetLegacyFieldValueInt32(guid, UnitField.UNIT_FIELD_MOUNTDISPLAYID);
+            if (mountDisplayId == 0)
+                return;
+
+            // SetUpdateField only marks the field dirty when the new value differs from the cached
+            // modern value. The cache already holds the wyvern displayId, so a normal update would
+            // be empty and the client wouldn't redraw. Force a diff by zeroing the cache slot first.
+            var modernCache = GetSession().GameState.GetCachedObjectFieldsModern(guid);
+            int modernMountIdx = ModernVersion.GetUpdateField(UnitField.UNIT_FIELD_MOUNTDISPLAYID);
+            if (modernCache != null && modernMountIdx >= 0)
+                modernCache.m_updateValues[modernMountIdx].SignedValue = 0;
+
+            ObjectUpdate updateData = new ObjectUpdate(guid, UpdateTypeModern.Values, GetSession());
+            updateData.UnitData.MountDisplayID = mountDisplayId;
+            UpdateObject updatePacket = new UpdateObject(GetSession().GameState);
+            updatePacket.ObjectUpdates.Add(updateData);
+            SendPacket(updatePacket);
+        }
         [PacketHandler(Opcode.CMSG_CANCEL_MOUNT_AURA)]
         void HandleCancelMountAura(EmptyClientPacket cancel)
         {
+            // Same reasoning as CMSG_CANCEL_AURA: drop the dismount request while on taxi.
+            if (GetSession().GameState.IsInTaxiFlight)
+            {
+                RefreshTaxiMountDisplay();
+                return;
+            }
+
             if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180))
             {
                 WorldPacket packet = new WorldPacket(Opcode.CMSG_CANCEL_MOUNT_AURA);
