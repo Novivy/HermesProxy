@@ -5,6 +5,7 @@ using HermesProxy.World.Objects;
 using HermesProxy.World.Server.Packets;
 using System;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Framework.Logging;
 using static HermesProxy.World.Server.Packets.ChannelListResponse;
 
@@ -227,6 +228,8 @@ namespace HermesProxy.World.Client
             if (!ChatPkt.CheckAddonPrefix(GetSession().GameState.AddonPrefixes, ref language, ref text, ref addonPrefix))
                 return;
 
+            text = ExpandVanillaItemLinksToModern(text);
+
             ChatMessageTypeModern chatTypeModern = (ChatMessageTypeModern)Enum.Parse(typeof(ChatMessageTypeModern), chatType.ToString());
             ChatPkt chat = new ChatPkt(GetSession(), chatTypeModern, text, language, sender, senderName, receiver, "", channelName, chatFlags, addonPrefix);
             SendPacketToClient(chat);
@@ -365,13 +368,61 @@ namespace HermesProxy.World.Client
             SendPacketToClient(chat);
         }
 
+        // Translate chat item links between the modern Classic 1.14 client's format and the legacy 1.12 wire format.
+        //
+        // Modern 1.14 inner fields (after itemID): [0] enchantID, [1-4] gem1-4, [5] randomProperty, [6] uniqueID,
+        //   [7] linkLevel, [8..] specID/upgrade/etc. (17 fields total, empty slots are valid).
+        // Legacy 1.12 inner fields (after itemID): [0] enchantID, [1] randomProperty, [2] creator (4 fields).
+        //
+        // The randomProperty field carries the same signed DBC-routing convention on both sides:
+        //   positive -> ItemRandomProperties.dbc lookup (fixed-stat "of the X")
+        //   negative -> ItemRandomSuffix.dbc[abs] lookup (variable-stat "of the X")
+        // Sign must be preserved end-to-end so both 1.12 and 1.14 receivers route to the same DBC.
+        private static string CollapseModernItemLinksToVanilla(string text)
+        {
+            if (string.IsNullOrEmpty(text) || !text.Contains("|Hitem:"))
+                return text;
+            return Regex.Replace(text, @"\|Hitem:(\d+)([^|]*)\|h", match =>
+            {
+                string itemId = match.Groups[1].Value;
+                string raw = match.Groups[2].Value;
+                // Group starts with ':' (separator after itemID); skip it so Split preserves empty positions.
+                string[] inner = raw.Length > 0 && raw[0] == ':'
+                    ? raw.Substring(1).Split(':')
+                    : raw.Split(':');
+                int enchant = inner.Length > 0 && int.TryParse(inner[0], out var e) ? e : 0;
+                int suffix  = inner.Length > 5 && int.TryParse(inner[5], out var s) ? s : 0;
+                return $"|Hitem:{itemId}:{enchant}:{suffix}:0|h";
+            });
+        }
+
+        private static string ExpandVanillaItemLinksToModern(string text)
+        {
+            if (string.IsNullOrEmpty(text) || !text.Contains("|Hitem:"))
+                return text;
+            return Regex.Replace(text,
+                @"\|Hitem:(\d+):(-?\d+):(-?\d+):(-?\d+)\|h",
+                match =>
+                {
+                    string itemId = match.Groups[1].Value;
+                    int enchant = int.TryParse(match.Groups[2].Value, out var e) ? e : 0;
+                    int randomProp = int.TryParse(match.Groups[3].Value, out var r) ? r : 0;
+                    // Match the modern Classic Era 1.14 client's own link format: 17 inner fields with empty slots.
+                    string enchantStr = enchant != 0 ? enchant.ToString() : "";
+                    string suffixStr = randomProp != 0 ? randomProp.ToString() : "";
+                    return $"|Hitem:{itemId}:{enchantStr}:::::{suffixStr}::60:::::::::|h";
+                });
+        }
+
         public void SendMessageChatVanilla(ChatMessageTypeVanilla type, uint lang, string msg, string channel, string to)
         {
             if (HandleHermesInternalChatCommand(msg))
             {
                 return; // was handled by us
             }
-            
+
+            msg = CollapseModernItemLinksToVanilla(msg);
+
             WorldPacket packet = new WorldPacket(Opcode.CMSG_MESSAGECHAT);
             packet.WriteUInt32((uint)type);
             packet.WriteUInt32(lang);
