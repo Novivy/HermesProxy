@@ -712,7 +712,12 @@ namespace HermesProxy
                 int PLAYER_VISIBLE_ITEM_1_0 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_VISIBLE_ITEM_1_0);
                 if (PLAYER_VISIBLE_ITEM_1_0 >= 0) // vanilla and tbc
                 {
-                    byte offset = (byte)(LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180) ? 16 : 12);
+                    bool isTBC = LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180);
+                    byte offset = (byte)(isTBC ? 16 : 12);
+                    // PLAYER_VISIBLE_ITEM_X_0 packs item ID at field 0 and visible enchant slot IDs after it.
+                    // Vanilla exposes 7 slots (Perm, Temp, 5 properties); TBC exposes 11 (Perm, Temp, Sock1-3, Bonus, 5 properties).
+                    // Modern InspectItemData expects only the inspectable enchants (Perm=0, Temp=1, plus sockets/bonus on TBC).
+                    byte enchantSlotsToRead = (byte)(isTBC ? 6 : 2);
                     for (byte i = 0; i < 19; i++)
                     {
                         if (updates.ContainsKey(PLAYER_VISIBLE_ITEM_1_0 + i * offset))
@@ -723,6 +728,18 @@ namespace HermesProxy
                                 InspectItemData itemData = new InspectItemData();
                                 itemData.Index = i;
                                 itemData.Item.ItemID = itemId;
+
+                                for (byte slot = 0; slot < enchantSlotsToRead; slot++)
+                                {
+                                    int enchantField = PLAYER_VISIBLE_ITEM_1_0 + i * offset + 1 + slot;
+                                    if (updates.ContainsKey(enchantField))
+                                    {
+                                        uint enchantId = updates[enchantField].UInt32Value;
+                                        if (enchantId != 0)
+                                            itemData.Enchants.Add(new InspectEnchantData(enchantId, slot));
+                                    }
+                                }
+
                                 inspect.DisplayInfo.Items.Add(itemData);
                             }
                         }
