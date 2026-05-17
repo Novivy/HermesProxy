@@ -72,6 +72,9 @@ namespace HermesProxy.World.Server
         [PacketHandler(Opcode.CMSG_MAIL_TAKE_ITEM)]
         void HandleMailTakeItem(MailTakeItem mail)
         {
+            // Vanilla mails only ever have one attachment, so the legacy 1.12 server doesn't carry AttachID in the response. Remember it so we can echo it back on error.
+            GetSession().GameState.PendingMailTakeAttachId[mail.MailID] = LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180) ? mail.AttachID : 1u;
+
             WorldPacket packet = new WorldPacket(Opcode.CMSG_MAIL_TAKE_ITEM);
             packet.WriteGuid(mail.Mailbox.To64());
             packet.WriteUInt32(mail.MailID);

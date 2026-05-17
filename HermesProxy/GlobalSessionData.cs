@@ -109,6 +109,7 @@ namespace HermesProxy
         public Dictionary<uint, uint> RealSpellToLearnSpell = new();
         public Dictionary<uint, ArenaTeamData> ArenaTeams = new();
         public World.Server.Packets.MailListResult PendingMailListPacket;
+        public Dictionary<uint, uint> PendingMailTakeAttachId = new Dictionary<uint, uint>(); // MailID -> AttachID, so we can echo AttachID back on error responses (legacy server omits it).
         public HashSet<uint> RequestedItemTextIds = new HashSet<uint>();
         public Dictionary<uint, string> ItemTexts = new Dictionary<uint, string>();
         public Dictionary<uint, uint> BattleFieldQueueTypes = new Dictionary<uint, uint>();

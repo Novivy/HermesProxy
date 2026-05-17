@@ -258,6 +258,17 @@ namespace HermesProxy.World.Client
                 if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V2_0_1_6180))
                     mail.AttachID = 1;
             }
+
+            // Legacy server never sends AttachID on the error path. Without it, the modern client can't un-grey the attachment slot, leaving the item stuck until reconnect (e.g. bag-full on take, then bag space frees up).
+            if (mail.Command == MailActionType.AttachmentExpired && mail.ErrorCode != MailErrorType.Ok && mail.AttachID == 0)
+            {
+                if (GetSession().GameState.PendingMailTakeAttachId.TryGetValue(mail.MailID, out uint pendingAttachId))
+                    mail.AttachID = pendingAttachId;
+            }
+
+            if (mail.Command == MailActionType.AttachmentExpired)
+                GetSession().GameState.PendingMailTakeAttachId.Remove(mail.MailID);
+
             SendPacketToClient(mail);
         }
     }
