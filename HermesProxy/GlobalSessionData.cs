@@ -1,4 +1,5 @@
 ﻿using HermesProxy.Auth;
+using HermesProxy.Enums;
 using HermesProxy.World;
 using HermesProxy.World.Client;
 using HermesProxy.World.Enums;
@@ -80,6 +81,7 @@ namespace HermesProxy
         public WowGuid128 CurrentInteractedWithNPC;
         public WowGuid128 CurrentInteractedWithGO;
         public uint LastWhoRequestId;
+        public long LastInspectForwardTicks; // DateTime.UtcNow.Ticks of last CMSG_INSPECT forwarded to legacy server (server enforces a 5s cooldown).
         public WowGuid128 CurrentPetGuid;
         public uint[] CurrentArenaTeamIds = new uint[3];
         public ClientCastRequest CurrentClientNormalCast;  // regular spell casts
@@ -677,6 +679,88 @@ namespace HermesProxy
                 return CreatureClasses[guid.GetEntry()];
 
             return Class.Warrior;
+        }
+
+        public InspectResult BuildInspectResultFromCache(WowGuid128 targetGuid)
+        {
+            InspectResult inspect = new InspectResult();
+            inspect.DisplayInfo.GUID = targetGuid;
+
+            PlayerCache cache;
+            bool hasCache = CachedPlayers.TryGetValue(targetGuid, out cache);
+
+            inspect.DisplayInfo.Name = hasCache ? (cache.Name ?? "") : "";
+            inspect.DisplayInfo.ClassId = hasCache ? cache.ClassId : Class.None;
+            inspect.DisplayInfo.RaceId = hasCache ? cache.RaceId : Race.None;
+            inspect.DisplayInfo.SexId = hasCache ? cache.SexId : Gender.Male;
+
+            var updates = GetCachedObjectFieldsLegacy(targetGuid);
+            if (updates != null)
+            {
+                if (!hasCache)
+                {
+                    int UNIT_FIELD_BYTES_0 = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_BYTES_0);
+                    if (UNIT_FIELD_BYTES_0 >= 0 && updates.ContainsKey(UNIT_FIELD_BYTES_0))
+                    {
+                        uint bytes0 = updates[UNIT_FIELD_BYTES_0].UInt32Value;
+                        inspect.DisplayInfo.RaceId = (Race)(bytes0 & 0xFF);
+                        inspect.DisplayInfo.ClassId = (Class)((bytes0 >> 8) & 0xFF);
+                        inspect.DisplayInfo.SexId = (Gender)((bytes0 >> 16) & 0xFF);
+                    }
+                }
+
+                int PLAYER_VISIBLE_ITEM_1_0 = LegacyVersion.GetUpdateField(PlayerField.PLAYER_VISIBLE_ITEM_1_0);
+                if (PLAYER_VISIBLE_ITEM_1_0 >= 0) // vanilla and tbc
+                {
+                    byte offset = (byte)(LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180) ? 16 : 12);
+                    for (byte i = 0; i < 19; i++)
+                    {
+                        if (updates.ContainsKey(PLAYER_VISIBLE_ITEM_1_0 + i * offset))
+                        {
+                            uint itemId = updates[PLAYER_VISIBLE_ITEM_1_0 + i * offset].UInt32Value;
+                            if (itemId != 0)
+                            {
+                                InspectItemData itemData = new InspectItemData();
+                                itemData.Index = i;
+                                itemData.Item.ItemID = itemId;
+                                inspect.DisplayInfo.Items.Add(itemData);
+                            }
+                        }
+                    }
+                }
+                int PLAYER_VISIBLE_ITEM_1_ENTRYID = LegacyVersion.GetUpdateField(PlayerField.PLAYER_VISIBLE_ITEM_1_ENTRYID);
+                if (PLAYER_VISIBLE_ITEM_1_ENTRYID >= 0) // wotlk
+                {
+                    int offset = 2;
+                    for (byte i = 0; i < 19; i++)
+                    {
+                        if (updates.ContainsKey(PLAYER_VISIBLE_ITEM_1_ENTRYID + i * offset))
+                        {
+                            uint itemId = updates[PLAYER_VISIBLE_ITEM_1_ENTRYID + i * offset].UInt32Value;
+                            if (itemId != 0)
+                            {
+                                InspectItemData itemData = new InspectItemData();
+                                itemData.Index = i;
+                                itemData.Item.ItemID = itemId;
+                                inspect.DisplayInfo.Items.Add(itemData);
+                            }
+                        }
+                    }
+                }
+                int PLAYER_GUILDID = LegacyVersion.GetUpdateField(PlayerField.PLAYER_GUILDID);
+                if (PLAYER_GUILDID >= 0 && updates.ContainsKey(PLAYER_GUILDID))
+                {
+                    inspect.GuildData = new InspectGuildData();
+                    inspect.GuildData.GuildGUID = WowGuid128.Create(HighGuidType703.Guild, updates[PLAYER_GUILDID].UInt32Value);
+                }
+                int PLAYER_FIELD_BYTES = LegacyVersion.GetUpdateField(PlayerField.PLAYER_FIELD_BYTES);
+                if (PLAYER_FIELD_BYTES >= 0 && updates.ContainsKey(PLAYER_FIELD_BYTES))
+                {
+                    inspect.LifetimeMaxRank = (byte)((updates[PLAYER_FIELD_BYTES].UInt32Value >> 24) & 0xFF);
+                }
+            }
+
+            return inspect;
         }
 
         public int GetLegacyFieldValueInt32<T>(WowGuid128 guid, T field)

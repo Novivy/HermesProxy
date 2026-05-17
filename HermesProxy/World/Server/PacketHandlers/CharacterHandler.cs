@@ -242,9 +242,39 @@ namespace HermesProxy.World.Server
         [PacketHandler(Opcode.CMSG_INSPECT)]
         void HandleInspect(Inspect inspect)
         {
+            // The legacy server (see cmangos WorldSocket.cpp InitOpcodeCooldowns) silently drops
+            // any CMSG_INSPECT within 5000ms of the previous one. The proxy already has all the
+            // data needed to build the response (race/class/sex from CachedPlayers or UNIT_FIELD_BYTES_0,
+            // items/guild/rank from the legacy object cache), so when we're inside that 5s window
+            // we synthesize the SMSG_INSPECT_RESULT locally instead of letting the request vanish.
+            const long cooldownMs = 5000;
+            long nowTicks = System.DateTime.UtcNow.Ticks;
+            long lastTicks = GetSession().GameState.LastInspectForwardTicks;
+            long elapsedMs = (nowTicks - lastTicks) / System.TimeSpan.TicksPerMillisecond;
+
+            if (lastTicks != 0 && elapsedMs < cooldownMs)
+            {
+                InspectResult result = GetSession().GameState.BuildInspectResultFromCache(inspect.Target);
+                SendPacket(result);
+                return;
+            }
+
+            // If the target isn't cached (e.g. SMSG_INVALIDATE_PLAYER wiped them after a relog,
+            // and the modern client uses its own UI cache so it skips CMSG_QUERY_PLAYER_NAME),
+            // proactively issue a legacy name query first. The legacy server processes packets in
+            // order, so the SMSG_QUERY_PLAYER_NAME_RESPONSE arrives before SMSG_INSPECT and
+            // repopulates CachedPlayers with name/race/class/sex before the inspect response runs.
+            if (!GetSession().GameState.CachedPlayers.ContainsKey(inspect.Target))
+            {
+                WorldPacket nameQuery = new WorldPacket(Opcode.CMSG_NAME_QUERY);
+                nameQuery.WriteGuid(inspect.Target.To64());
+                SendPacketToServer(nameQuery);
+            }
+
             WorldPacket packet = new WorldPacket(Opcode.CMSG_INSPECT);
             packet.WriteGuid(inspect.Target.To64());
             SendPacketToServer(packet);
+            GetSession().GameState.LastInspectForwardTicks = nowTicks;
         }
 
         [PacketHandler(Opcode.CMSG_INSPECT_HONOR_STATS)]
