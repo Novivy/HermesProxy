@@ -25,6 +25,7 @@ public class Program
             CommandLineArgumentsTemplate.ConfigFileLocation,
             CommandLineArgumentsTemplate.DisableVersionCheck,
             CommandLineArgumentsTemplate.OverwrittenConfigValues,
+            CommandLineArgumentsTemplate.LoadDebugger,
         };
 
         var parser = new CommandLineBuilder(commandTree)
@@ -39,7 +40,9 @@ public class Program
                 ConfigFileLocation = result.GetValueForOption(CommandLineArgumentsTemplate.ConfigFileLocation),
                 DisableVersionCheck = result.GetValueForOption(CommandLineArgumentsTemplate.DisableVersionCheck),
                 OverwrittenConfigValues = ParseMultiArgument(result.GetValueForOption(CommandLineArgumentsTemplate.OverwrittenConfigValues)),
+                LoadDebugger = result.GetValueForOption(CommandLineArgumentsTemplate.LoadDebugger),
             };
+            TryLoadDebugger(commandLineArguments.LoadDebugger);
             Server.ServerMain(commandLineArguments);
         });
 
@@ -64,6 +67,49 @@ public class Program
         }
 
         return exitCode;
+    }
+
+    // Loads a managed debugger/diagnostic agent and invokes its
+    // StartupHook.Initialize static method. Used for in-process debugging
+    // and instrumentation. Silent on errors so a missing/broken agent doesn't
+    // crash Hermes on startup.
+    private static void TryLoadDebugger(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        Console.Error.WriteLine($"[debugger] step 1: about to LoadFrom('{path}')");
+        Console.Error.Flush();
+        try
+        {
+            var asm = System.Reflection.Assembly.LoadFrom(path);
+            Console.Error.WriteLine($"[debugger] step 2: loaded assembly {asm.FullName}");
+            Console.Error.Flush();
+
+            var hookType = asm.GetType("StartupHook");
+            Console.Error.WriteLine($"[debugger] step 3: GetType('StartupHook') = {(hookType?.FullName ?? "<null>")}");
+            Console.Error.Flush();
+
+            var init = hookType?.GetMethod("Initialize",
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            Console.Error.WriteLine($"[debugger] step 4: GetMethod('Initialize') = {(init?.Name ?? "<null>")}");
+            Console.Error.Flush();
+
+            Console.Error.WriteLine("[debugger] step 5: invoking Initialize...");
+            Console.Error.Flush();
+            init?.Invoke(null, null);
+            Console.Error.WriteLine("[debugger] step 6: Initialize returned");
+            Console.Error.Flush();
+        }
+        catch (System.Reflection.TargetInvocationException tie)
+        {
+            var inner = tie.InnerException ?? tie;
+            Console.Error.WriteLine($"[debugger] Initialize threw: {inner.GetType().Name}: {inner.Message}");
+            Console.Error.WriteLine(inner.StackTrace ?? "(no stack)");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[debugger] load failed: {ex.GetType().Name}: {ex.Message}");
+            Console.Error.WriteLine(ex.StackTrace ?? "(no stack)");
+        }
     }
 
     private static Dictionary<string, string> ParseMultiArgument(string[]? multiArgs)
@@ -110,6 +156,14 @@ public class Program
             name: "--set",
             description: "Overwrites a specific config value. Example: --set ServerAddress=logon.example.com"
             );
+
+        // Used internally for in-process diagnostics; not documented for end users.
+        public static readonly Option<string?> LoadDebugger = new(
+            name: "--load-debugger",
+            description: "")
+        {
+            IsHidden = true,
+        };
     }
 }
 
@@ -118,6 +172,7 @@ public class CommandLineArguments
     public string? ConfigFileLocation { init; get; }
     public bool DisableVersionCheck { init; get; }
     public Dictionary<string, string> OverwrittenConfigValues { init; get; }
+    public string? LoadDebugger { init; get; }
 }
 
 internal static class OsSpecific
