@@ -396,6 +396,15 @@ namespace HermesProxy.World.Client
             spell2.SpellXSpellVisualID = spellVisual;
             spell2.Reason = reason;
             SendPacketToClient(spell2);
+
+            // Fast-path retract: when the server broadcasts a failure for an
+            // auto-repeat spell from a remote unit, we know the volley ended, so
+            // skip the timer and retract the bow immediately.
+            if (casterUnit != GetSession().GameState.CurrentPlayerGuid &&
+                GameData.AutoRepeatSpells.Contains(spellId))
+            {
+                RetractOtherAutoShotNow(casterUnit);
+            }
         }
 
         [PacketHandler(Opcode.SMSG_SPELL_START)]
@@ -530,8 +539,84 @@ namespace HermesProxy.World.Client
                 foreach (WowGuid128 target in spell.Cast.HitTargets)
                     GetSession().GameState.StoreLastAuraCasterOnTarget(target, (uint)spell.Cast.SpellID, spell.Cast.CasterUnit);
             }
-                
+
+            // The 1.14 client keeps the bow/wand aim pose drawn for OTHER observed
+            // units until it receives SMSG_CANCEL_AUTO_REPEAT for that unit. The
+            // 1.12 server only sends that packet to the caster's own session, so
+            // the proxy never sees it for remote hunters. Schedule a synthetic
+            // cancel; each new auto-repeat SPELL_GO from the same unit pushes the
+            // timer forward, so continuous shooting keeps the bow visible.
+            if (!spell.Cast.CasterUnit.IsEmpty() &&
+                spell.Cast.CasterUnit != GetSession().GameState.CurrentPlayerGuid &&
+                GameData.AutoRepeatSpells.Contains((uint)spell.Cast.SpellID))
+            {
+                ScheduleOtherAutoShotRetract(spell.Cast.CasterUnit);
+            }
+
             SendPacketToClient(spell);
+        }
+
+        // Vanilla bows fire at most every ~3.3s unhasted. 5s leaves margin for one
+        // skipped shot (haste-jittered or out-of-range retry) without retracting too
+        // early during a continuous volley.
+        private const int OtherAutoShotRetractDelayMs = 5000;
+
+        private void ScheduleOtherAutoShotRetract(WowGuid128 casterUnit)
+        {
+            var gameState = GetSession().GameState;
+            var newCts = new CancellationTokenSource();
+            lock (gameState.OtherAutoShotTimersLock)
+            {
+                if (gameState.OtherAutoShotTimers.TryGetValue(casterUnit, out var oldCts))
+                {
+                    oldCts.Cancel();
+                    oldCts.Dispose();
+                }
+                gameState.OtherAutoShotTimers[casterUnit] = newCts;
+            }
+
+            var token = newCts.Token;
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    await System.Threading.Tasks.Task.Delay(OtherAutoShotRetractDelayMs, token);
+                }
+                catch (System.OperationCanceledException)
+                {
+                    return;
+                }
+
+                lock (gameState.OtherAutoShotTimersLock)
+                {
+                    if (!gameState.OtherAutoShotTimers.TryGetValue(casterUnit, out var current) || current != newCts)
+                        return;
+                    gameState.OtherAutoShotTimers.Remove(casterUnit);
+                }
+                newCts.Dispose();
+
+                CancelAutoRepeat cancel = new CancelAutoRepeat();
+                cancel.Guid = casterUnit;
+                SendPacketToClient(cancel);
+            });
+        }
+
+        private void RetractOtherAutoShotNow(WowGuid128 casterUnit)
+        {
+            var gameState = GetSession().GameState;
+            lock (gameState.OtherAutoShotTimersLock)
+            {
+                if (gameState.OtherAutoShotTimers.TryGetValue(casterUnit, out var oldCts))
+                {
+                    oldCts.Cancel();
+                    oldCts.Dispose();
+                    gameState.OtherAutoShotTimers.Remove(casterUnit);
+                }
+            }
+
+            CancelAutoRepeat cancel = new CancelAutoRepeat();
+            cancel.Guid = casterUnit;
+            SendPacketToClient(cancel);
         }
 
         SpellCastData HandleSpellStartOrGo(WorldPacket packet, bool isSpellGo)

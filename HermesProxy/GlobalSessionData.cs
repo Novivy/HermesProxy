@@ -131,6 +131,13 @@ namespace HermesProxy
         public HashSet<uint> RequestedItemHotfixes = new HashSet<uint>();
         public HashSet<uint> RequestedItemSparseHotfixes = new HashSet<uint>();
 
+        // Per-observed-unit timers that synthesize SMSG_CANCEL_AUTO_REPEAT when a
+        // remote hunter stops auto-shooting. The 1.12 server only sends this packet
+        // body-less to the caster's own session, so observers' proxy sessions never
+        // receive it and the 1.14 client keeps the bow/wand drawn in aim pose.
+        public Dictionary<WowGuid128, System.Threading.CancellationTokenSource> OtherAutoShotTimers = new();
+        public readonly object OtherAutoShotTimersLock = new object();
+
         private GameSessionData()
         {
             
