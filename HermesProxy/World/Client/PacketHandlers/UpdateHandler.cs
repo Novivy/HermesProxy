@@ -1540,10 +1540,24 @@ namespace HermesProxy.World.Client
 
                     if (objectType == ObjectType.Unit)
                         GetSession().GameState.StoreCreatureClass(guid.GetEntry(), (Class)updateData.UnitData.ClassId);
-                    else if (!factionTemplateUpdated)
-                        // Only fall back to race-based ArenaFaction when faction template wasn't in this update.
-                        // If faction template was already processed above, it takes priority over race.
-                        updateData.PlayerData.ArenaFaction = (byte)(GameData.IsAllianceRace((Race)updateData.UnitData.RaceId) ? 1 : 0);
+                    else
+                    {
+                        // Cache the player's class so subsequent partial updates (which don't carry BYTES_0)
+                        // can still resolve the correct power slot. Without this, SMSG_GROUP_LIST pollutes the
+                        // cache with Warrior (the GetUnitClass default), causing every mana update for grouped
+                        // 1.12 players to be dropped by GetPowerSlotForClass returning -1.
+                        GetSession().GameState.UpdatePlayerCache(guid, new PlayerCache
+                        {
+                            ClassId = (Class)updateData.UnitData.ClassId,
+                            RaceId = (Race)updateData.UnitData.RaceId,
+                            SexId = (Gender)updateData.UnitData.SexId,
+                        });
+
+                        if (!factionTemplateUpdated)
+                            // Only fall back to race-based ArenaFaction when faction template wasn't in this update.
+                            // If faction template was already processed above, it takes priority over race.
+                            updateData.PlayerData.ArenaFaction = (byte)(GameData.IsAllianceRace((Race)updateData.UnitData.RaceId) ? 1 : 0);
+                    }
                 }
 
                 int UNIT_FIELD_POWER1 = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_POWER1);
