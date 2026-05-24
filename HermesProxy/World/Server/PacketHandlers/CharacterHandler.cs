@@ -313,5 +313,11 @@ namespace HermesProxy.World.Server
             packet.WriteCString(rename.NewName);
             SendPacketToServer(packet);
         }
+
+        [PacketHandler(Opcode.CMSG_REORDER_CHARACTERS)]
+        void HandleReorderCharacters(ReorderCharacters reorder)
+        {
+            GetSession().AccountMetaDataMgr.SaveCharacterOrder(GetSession().Realm.Name, reorder.changedPositionsList, GetSession().GameState.OwnCharacters);
+        }
     }
 }
