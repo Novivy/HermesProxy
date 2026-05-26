@@ -46,6 +46,7 @@ namespace HermesProxy.World
         public static HashSet<uint> NextMeleeSpells = new HashSet<uint>();
         public static HashSet<uint> AutoRepeatSpells = new HashSet<uint>();
         public static HashSet<uint> AuraSpells = new HashSet<uint>();
+        public static Dictionary<uint, int> AuraDurations = new Dictionary<uint, int>();
         public static Dictionary<uint, TaxiPath> TaxiPaths = new Dictionary<uint, TaxiPath>();
         public static int[,] TaxiNodesGraph = new int[250,250];
         public static Dictionary<uint /*questId*/, uint /*questBit*/> QuestBits = new Dictionary<uint, uint>();
@@ -339,6 +340,13 @@ namespace HermesProxy.World
             return 0;
         }
 
+        public static int GetAuraSpellDuration(uint spellId)
+        {
+            if (AuraDurations.TryGetValue(spellId, out int duration))
+                return duration;
+            return 0;
+        }
+
         public static int GetTotemSlotForSpell(uint spellId)
         {
             uint slot;
@@ -613,6 +621,7 @@ namespace HermesProxy.World
             LoadMeleeSpells();
             LoadAutoRepeatSpells();
             LoadAuraSpells();
+            LoadAuraDurations();
             LoadTaxiPaths();
             LoadTaxiPathNodesGraph();
             LoadQuestBits();
@@ -1551,6 +1560,30 @@ namespace HermesProxy.World
 
                     uint spellId = UInt32.Parse(fields[0]);
                     AuraSpells.Add(spellId);
+                }
+            }
+        }
+        public static void LoadAuraDurations()
+        {
+            var path = Path.Combine("CSV", $"AuraDurations{LegacyVersion.ExpansionVersion}.csv");
+            if (!File.Exists(path))
+                return;
+
+            using (TextFieldParser csvParser = new TextFieldParser(path))
+            {
+                csvParser.CommentTokens = new string[] { "#" };
+                csvParser.SetDelimiters(new string[] { "," });
+                csvParser.HasFieldsEnclosedInQuotes = false;
+
+                csvParser.ReadLine();
+
+                while (!csvParser.EndOfData)
+                {
+                    string[] fields = csvParser.ReadFields();
+
+                    uint spellId = UInt32.Parse(fields[0]);
+                    int duration = Int32.Parse(fields[1]);
+                    AuraDurations[spellId] = duration;
                 }
             }
         }

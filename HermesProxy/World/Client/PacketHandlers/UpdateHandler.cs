@@ -1145,6 +1145,13 @@ namespace HermesProxy.World.Client
             if (GameData.SpellEffectPoints.TryGetValue(spellId, out var basePoints))
                 data.Points = basePoints;
 
+            int duration = GameData.GetAuraSpellDuration(spellId);
+            if (duration > 0)
+            {
+                data.Duration = duration;
+                data.Remaining = duration;
+            }
+
             return data;
         }
 
@@ -2028,9 +2035,7 @@ namespace HermesProxy.World.Client
                     int aurasCount = LegacyVersion.GetAuraSlotsCount();
                     for (byte i = 0; i < aurasCount; i++)
                     {
-                        if (updateMaskArray[UNIT_FIELD_AURA + i] ||
-                            updateMaskArray[UNIT_FIELD_AURALEVELS + i / 4] ||
-                            updateMaskArray[UNIT_FIELD_AURAAPPLICATIONS + i / 4])
+                        if (updateMaskArray[UNIT_FIELD_AURA + i])
                         {
                             AuraInfo aura = new AuraInfo();
                             aura.Slot = i;

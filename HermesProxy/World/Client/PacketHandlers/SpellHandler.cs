@@ -536,8 +536,19 @@ namespace HermesProxy.World.Client
                 SendPacketToServer(pendingGoPacket);
             if (!spell.Cast.CasterUnit.IsEmpty() && GameData.AuraSpells.Contains((uint)spell.Cast.SpellID))
             {
+                uint spellId = (uint)spell.Cast.SpellID;
                 foreach (WowGuid128 target in spell.Cast.HitTargets)
-                    GetSession().GameState.StoreLastAuraCasterOnTarget(target, (uint)spell.Cast.SpellID, spell.Cast.CasterUnit);
+                {
+                    var updateFields = GetSession().GameState.GetCachedObjectFieldsLegacy(target);
+                    if (updateFields != null)
+                    {
+                        int existingSlot = FindAuraSlotBySpellId(target, spellId, updateFields);
+                        if (existingSlot >= 0)
+                            SendAuraRefreshUpdate(target, spellId, spell.Cast.CasterUnit, (byte)existingSlot, updateFields);
+                    }
+
+                    GetSession().GameState.StoreLastAuraCasterOnTarget(target, spellId, spell.Cast.CasterUnit);
+                }
             }
 
             // The 1.14 client keeps the bow/wand aim pose drawn for OTHER observed
@@ -1341,6 +1352,60 @@ namespace HermesProxy.World.Client
                 GetSession().GameState.SetFlatSpellMod(modIndex, classIndex, modValue);
             else
                 GetSession().GameState.SetPctSpellMod(modIndex, classIndex, modValue);
+        }
+
+        private int FindAuraSlotBySpellId(WowGuid128 target, uint spellId, Dictionary<int, UpdateField> updateFields)
+        {
+            int UNIT_FIELD_AURA = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_AURA);
+            if (UNIT_FIELD_AURA < 0)
+                return -1;
+
+            int aurasCount = LegacyVersion.GetAuraSlotsCount();
+            for (int i = 0; i < aurasCount; i++)
+            {
+                if (updateFields.TryGetValue(UNIT_FIELD_AURA + i, out var field) && field.UInt32Value == spellId)
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private void SendAuraRefreshUpdate(WowGuid128 target, uint spellId, WowGuid128 caster, byte slot, Dictionary<int, UpdateField> updateFields)
+        {
+            AuraDataInfo auraData = ReadAuraSlot(slot, target, updateFields);
+            if (auraData == null || auraData.SpellID != spellId)
+                return;
+
+            auraData.CastUnit = caster;
+
+            GetSession().GameState.GetAuraDuration(target, slot, out int durationLeft, out int durationFull);
+
+            if (durationFull <= 0)
+                durationFull = GameData.GetAuraSpellDuration(spellId);
+
+            if (durationFull > 0)
+            {
+                auraData.Flags |= AuraFlagsModern.Duration;
+                auraData.Duration = durationFull;
+                auraData.Remaining = durationFull;
+
+                GetSession().GameState.StoreAuraDurationLeft(target, slot, durationFull, Environment.TickCount);
+                GetSession().GameState.StoreAuraDurationFull(target, slot, durationFull);
+            }
+
+            AuraInfo aura = new AuraInfo();
+            aura.Slot = slot;
+            aura.AuraData = auraData;
+
+            AuraUpdate clearUpdate = new AuraUpdate(target, false);
+            AuraInfo clearAura = new AuraInfo();
+            clearAura.Slot = slot;
+            clearUpdate.Auras.Add(clearAura);
+            SendPacketToClient(clearUpdate);
+
+            AuraUpdate update = new AuraUpdate(target, false);
+            update.Auras.Add(aura);
+            SendPacketToClient(update);
         }
     }
 }
