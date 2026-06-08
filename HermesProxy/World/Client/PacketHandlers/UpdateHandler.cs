@@ -339,7 +339,7 @@ namespace HermesProxy.World.Client
         {
             BitArray updateMaskArray = null;
             var updates = ReadValuesUpdateBlock(packet, ref type, index, true, null, out updateMaskArray, out var actuallyChangedValuesMaskArray);
-            StoreObjectUpdate(guid, type, updateMaskArray, updates, auraUpdate, null, true, updateData, actuallyChangedValuesMaskArray);
+            StoreObjectUpdate(guid, type, updateMaskArray, updates, auraUpdate, null, true, updateData, actuallyChangedValuesMaskArray, null);
             GetSession().GameState.ObjectCacheMutex.WaitOne();
             if (!GetSession().GameState.ObjectCacheLegacy.ContainsKey(guid))
                 GetSession().GameState.ObjectCacheLegacy.Add(guid, updates);
@@ -352,8 +352,76 @@ namespace HermesProxy.World.Client
         {
             BitArray updateMaskArray = null;
             ObjectType type = GetSession().GameState.GetOriginalObjectType(guid);
-            var updates = ReadValuesUpdateBlock(packet, ref type, index, false, GetSession().GameState.GetCachedObjectFieldsLegacy(guid), out updateMaskArray, out var actuallyChangedValuesMaskArray);
-            StoreObjectUpdate(guid, type, updateMaskArray, updates, auraUpdate, powerUpdate, false, updateData, actuallyChangedValuesMaskArray);
+            var cachedFields = GetSession().GameState.GetCachedObjectFieldsLegacy(guid);
+            // Only units carry auras; skip the snapshot/diff work (and its allocations) for
+            // every other object type updating in the world.
+            bool canHaveAuras = type == ObjectType.Unit || type == ObjectType.Player || type == ObjectType.ActivePlayer;
+            // Snapshot the packed aura stack/level dwords BEFORE the merge mutates the cache
+            // in place, so we can detect per-slot stack changes (e.g. Sunder Armor stacking)
+            // that don't touch UNIT_FIELD_AURA itself.
+            var oldAuraPacked = canHaveAuras ? CaptureAuraPackedFields(cachedFields) : null;
+            var updates = ReadValuesUpdateBlock(packet, ref type, index, false, cachedFields, out updateMaskArray, out var actuallyChangedValuesMaskArray);
+            BitArray changedAuraSlots = oldAuraPacked != null ? ComputeChangedAuraSlots(oldAuraPacked, updates) : null;
+            StoreObjectUpdate(guid, type, updateMaskArray, updates, auraUpdate, powerUpdate, false, updateData, actuallyChangedValuesMaskArray, changedAuraSlots);
+        }
+
+        // Copies the packed AURALEVELS / AURAAPPLICATIONS dwords (4 aura slots per uint32)
+        // out of the cached fields so they survive the in-place merge and can be diffed.
+        private Dictionary<int, uint> CaptureAuraPackedFields(Dictionary<int, UpdateField> fields)
+        {
+            var snapshot = new Dictionary<int, uint>();
+            if (fields == null)
+                return snapshot;
+
+            int UNIT_FIELD_AURALEVELS = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_AURALEVELS);
+            int UNIT_FIELD_AURAAPPLICATIONS = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_AURAAPPLICATIONS);
+            if (UNIT_FIELD_AURALEVELS <= 0 || UNIT_FIELD_AURAAPPLICATIONS <= 0)
+                return snapshot;
+
+            int aurasCount = LegacyVersion.GetAuraSlotsCount();
+            int dwords = (aurasCount + 3) / 4;
+            for (int d = 0; d < dwords; d++)
+            {
+                if (fields.TryGetValue(UNIT_FIELD_AURALEVELS + d, out var lf))
+                    snapshot[UNIT_FIELD_AURALEVELS + d] = lf.UInt32Value;
+                if (fields.TryGetValue(UNIT_FIELD_AURAAPPLICATIONS + d, out var af))
+                    snapshot[UNIT_FIELD_AURAAPPLICATIONS + d] = af.UInt32Value;
+            }
+            return snapshot;
+        }
+
+        // Returns a per-slot mask of auras whose stack count or caster level actually changed,
+        // compared byte-by-byte (not dword) so neighbouring slots sharing the same packed
+        // uint32 don't get ghost updates.
+        private BitArray ComputeChangedAuraSlots(Dictionary<int, uint> oldPacked, Dictionary<int, UpdateField> newFields)
+        {
+            int aurasCount = LegacyVersion.GetAuraSlotsCount();
+            var result = new BitArray(aurasCount);
+
+            int UNIT_FIELD_AURALEVELS = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_AURALEVELS);
+            int UNIT_FIELD_AURAAPPLICATIONS = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_AURAAPPLICATIONS);
+            if (UNIT_FIELD_AURALEVELS <= 0 || UNIT_FIELD_AURAAPPLICATIONS <= 0 || oldPacked.Count == 0)
+                return result;
+
+            for (int i = 0; i < aurasCount; i++)
+            {
+                if (AuraPackedByte(oldPacked, UNIT_FIELD_AURALEVELS + i / 4, i) != AuraPackedByteNew(newFields, UNIT_FIELD_AURALEVELS + i / 4, i) ||
+                    AuraPackedByte(oldPacked, UNIT_FIELD_AURAAPPLICATIONS + i / 4, i) != AuraPackedByteNew(newFields, UNIT_FIELD_AURAAPPLICATIONS + i / 4, i))
+                    result[i] = true;
+            }
+            return result;
+        }
+
+        private static byte AuraPackedByte(Dictionary<int, uint> fields, int dwordIndex, int slot)
+        {
+            uint dword = fields.TryGetValue(dwordIndex, out var v) ? v : 0;
+            return (byte)((dword >> ((slot % 4) * 8)) & 0xFF);
+        }
+
+        private static byte AuraPackedByteNew(Dictionary<int, UpdateField> fields, int dwordIndex, int slot)
+        {
+            uint dword = fields.TryGetValue(dwordIndex, out var v) ? v.UInt32Value : 0;
+            return (byte)((dword >> ((slot % 4) * 8)) & 0xFF);
         }
 
         private string GetIndexString(params object[] values)
@@ -1178,9 +1246,9 @@ namespace HermesProxy.World.Client
             return flags;
         }
 
-        public void StoreObjectUpdate(WowGuid128 guid, ObjectType objectType, BitArray updateMaskArray, Dictionary<int, UpdateField> updates, AuraUpdate auraUpdate, PowerUpdate powerUpdate, bool isCreate, ObjectUpdate updateData, BitArray actuallyChangedValuesMaskArray)
+        public void StoreObjectUpdate(WowGuid128 guid, ObjectType objectType, BitArray updateMaskArray, Dictionary<int, UpdateField> updates, AuraUpdate auraUpdate, PowerUpdate powerUpdate, bool isCreate, ObjectUpdate updateData, BitArray actuallyChangedValuesMaskArray, BitArray changedAuraSlots)
         {
-            StoreObjectUpdateInternal(guid, objectType, updateMaskArray, updates, auraUpdate, powerUpdate, isCreate, updateData);
+            StoreObjectUpdateInternal(guid, objectType, updateMaskArray, updates, auraUpdate, powerUpdate, isCreate, updateData, changedAuraSlots);
             AfterStoreObjectUpdateHook(guid, objectType, updateMaskArray, updates, auraUpdate, powerUpdate, isCreate, updateData, actuallyChangedValuesMaskArray);
         }
 
@@ -1246,7 +1314,7 @@ namespace HermesProxy.World.Client
             }
         }
         
-        private void StoreObjectUpdateInternal(WowGuid128 guid, ObjectType objectType, BitArray updateMaskArray, Dictionary<int, UpdateField> updates, AuraUpdate auraUpdate, PowerUpdate powerUpdate, bool isCreate, ObjectUpdate updateData)
+        private void StoreObjectUpdateInternal(WowGuid128 guid, ObjectType objectType, BitArray updateMaskArray, Dictionary<int, UpdateField> updates, AuraUpdate auraUpdate, PowerUpdate powerUpdate, bool isCreate, ObjectUpdate updateData, BitArray changedAuraSlots)
         {
             // Object Fields
             int OBJECT_FIELD_GUID = LegacyVersion.GetUpdateField(ObjectField.OBJECT_FIELD_GUID);
@@ -2035,7 +2103,12 @@ namespace HermesProxy.World.Client
                     int aurasCount = LegacyVersion.GetAuraSlotsCount();
                     for (byte i = 0; i < aurasCount; i++)
                     {
-                        if (updateMaskArray[UNIT_FIELD_AURA + i])
+                        bool spellSlotChanged = updateMaskArray[UNIT_FIELD_AURA + i];
+                        // Stack count / caster level can change without the spell-id slot
+                        // changing (e.g. Sunder Armor restacking). Detected per-slot to avoid
+                        // ghost updates for adjacent slots sharing the same packed dword.
+                        bool stackOrLevelChanged = changedAuraSlots != null && i < changedAuraSlots.Length && changedAuraSlots[i];
+                        if (spellSlotChanged || stackOrLevelChanged)
                         {
                             AuraInfo aura = new AuraInfo();
                             aura.Slot = i;
@@ -2053,12 +2126,12 @@ namespace HermesProxy.World.Client
                                 }
                                 aura.AuraData.CastUnit = GetSession().GameState.GetAuraCaster(guid, i, aura.AuraData.SpellID);
                             }
-                            else if (updateMaskArray[UNIT_FIELD_AURA + i])
+                            else if (spellSlotChanged)
                             {
                                 GetSession().GameState.ClearAuraDuration(guid, i);
                                 GetSession().GameState.ClearAuraCaster(guid, i);
                             }
-                            if (aura.AuraData != null || updateMaskArray[UNIT_FIELD_AURA + i])
+                            if (aura.AuraData != null || spellSlotChanged)
                                 auraUpdate.Auras.Add(aura);
                         }
                     }
