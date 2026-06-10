@@ -841,6 +841,11 @@ namespace HermesProxy.World.Enums.V1_12_1_5875
         UMSG_DELETE_GUILD_CHARTER                             = 0x2C0,
         UMSG_UPDATE_GROUP_MEMBERS                             = 0x080,
         UMSG_UPDATE_GUILD                                     = 0x094,
-        CMSG_HERMES_VERSION                                   = 0x424
+        CMSG_HERMES_VERSION                                   = 0x424,
+        // custom wowhc server extension: threat list feedback (WotLK opcodes backported into the vanilla protocol)
+        SMSG_HIGHEST_THREAT_UPDATE                            = 0x425,
+        SMSG_THREAT_UPDATE                                    = 0x426,
+        SMSG_THREAT_REMOVE                                    = 0x427,
+        SMSG_THREAT_CLEAR                                     = 0x428
     }
 }

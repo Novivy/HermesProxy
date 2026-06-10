@@ -282,4 +282,79 @@ namespace HermesProxy.World.Server.Packets
         public WowGuid128 Player;
         public WowGuid128 Victim;
     }
+
+    // wowhc: threat list feedback, translated from the custom vanilla-protocol threat opcodes.
+    // Threat is int64 on the 1.14 client (TrinityCore master layout) - int32 (as in the
+    // outdated WowPacketParser V6 parser) desyncs the client parser and shows garbage values.
+    public struct ThreatInfo
+    {
+        public WowGuid128 UnitGUID;
+        public long Threat;
+    }
+
+    public class ThreatUpdate : ServerPacket
+    {
+        public ThreatUpdate() : base(Opcode.SMSG_THREAT_UPDATE, ConnectionType.Instance) { }
+
+        public override void Write()
+        {
+            _worldPacket.WritePackedGuid128(UnitGUID);
+            _worldPacket.WriteInt32(ThreatList.Count);
+            foreach (ThreatInfo threatInfo in ThreatList)
+            {
+                _worldPacket.WritePackedGuid128(threatInfo.UnitGUID);
+                _worldPacket.WriteInt64(threatInfo.Threat);
+            }
+        }
+
+        public WowGuid128 UnitGUID;
+        public List<ThreatInfo> ThreatList = new();
+    }
+
+    public class HighestThreatUpdate : ServerPacket
+    {
+        public HighestThreatUpdate() : base(Opcode.SMSG_HIGHEST_THREAT_UPDATE, ConnectionType.Instance) { }
+
+        public override void Write()
+        {
+            _worldPacket.WritePackedGuid128(UnitGUID);
+            _worldPacket.WritePackedGuid128(HighestThreatGUID);
+            _worldPacket.WriteInt32(ThreatList.Count);
+            foreach (ThreatInfo threatInfo in ThreatList)
+            {
+                _worldPacket.WritePackedGuid128(threatInfo.UnitGUID);
+                _worldPacket.WriteInt64(threatInfo.Threat);
+            }
+        }
+
+        public WowGuid128 UnitGUID;
+        public WowGuid128 HighestThreatGUID;
+        public List<ThreatInfo> ThreatList = new();
+    }
+
+    public class ThreatRemove : ServerPacket
+    {
+        public ThreatRemove() : base(Opcode.SMSG_THREAT_REMOVE, ConnectionType.Instance) { }
+
+        public override void Write()
+        {
+            _worldPacket.WritePackedGuid128(UnitGUID);
+            _worldPacket.WritePackedGuid128(AboutGUID);
+        }
+
+        public WowGuid128 UnitGUID;
+        public WowGuid128 AboutGUID;
+    }
+
+    public class ThreatClear : ServerPacket
+    {
+        public ThreatClear() : base(Opcode.SMSG_THREAT_CLEAR, ConnectionType.Instance) { }
+
+        public override void Write()
+        {
+            _worldPacket.WritePackedGuid128(UnitGUID);
+        }
+
+        public WowGuid128 UnitGUID;
+    }
 }

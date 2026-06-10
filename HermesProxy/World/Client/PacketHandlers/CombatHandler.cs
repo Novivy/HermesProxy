@@ -1,4 +1,5 @@
 ﻿using Framework;
+using Framework.Logging;
 using HermesProxy.Enums;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Objects;
@@ -152,6 +153,59 @@ namespace HermesProxy.World.Client
             log.Player = packet.ReadGuid().To128(GetSession().GameState);
             log.Victim = packet.ReadGuid().To128(GetSession().GameState);
             SendPacketToClient(log);
+        }
+
+        // wowhc: custom vanilla-protocol threat opcodes (0x425-0x428), translated to the
+        // modern threat packets that feed UnitDetailedThreatSituation() on 1.14 clients
+        [PacketHandler(Opcode.SMSG_THREAT_UPDATE)]
+        void HandleThreatUpdate(WorldPacket packet)
+        {
+            ThreatUpdate update = new();
+            update.UnitGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
+            uint count = packet.ReadUInt32();
+            for (uint i = 0; i < count; i++)
+            {
+                ThreatInfo threatInfo;
+                threatInfo.UnitGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
+                // modern client expects centi-threat (TrinityCore: GetThreat() * 100)
+                threatInfo.Threat = packet.ReadInt32() * 100L;
+                update.ThreatList.Add(threatInfo);
+            }
+            Log.Print(LogType.Debug, $"THREAT_UPDATE from {update.UnitGUID}, {count} entries -> client");
+            SendPacketToClient(update);
+        }
+        [PacketHandler(Opcode.SMSG_HIGHEST_THREAT_UPDATE)]
+        void HandleHighestThreatUpdate(WorldPacket packet)
+        {
+            HighestThreatUpdate update = new();
+            update.UnitGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
+            update.HighestThreatGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
+            uint count = packet.ReadUInt32();
+            for (uint i = 0; i < count; i++)
+            {
+                ThreatInfo threatInfo;
+                threatInfo.UnitGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
+                // modern client expects centi-threat (TrinityCore: GetThreat() * 100)
+                threatInfo.Threat = packet.ReadInt32() * 100L;
+                update.ThreatList.Add(threatInfo);
+            }
+            Log.Print(LogType.Debug, $"HIGHEST_THREAT_UPDATE from {update.UnitGUID}, highest {update.HighestThreatGUID}, {count} entries -> client");
+            SendPacketToClient(update);
+        }
+        [PacketHandler(Opcode.SMSG_THREAT_REMOVE)]
+        void HandleThreatRemove(WorldPacket packet)
+        {
+            ThreatRemove remove = new();
+            remove.UnitGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
+            remove.AboutGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
+            SendPacketToClient(remove);
+        }
+        [PacketHandler(Opcode.SMSG_THREAT_CLEAR)]
+        void HandleThreatClear(WorldPacket packet)
+        {
+            ThreatClear clear = new();
+            clear.UnitGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
+            SendPacketToClient(clear);
         }
     }
 }
