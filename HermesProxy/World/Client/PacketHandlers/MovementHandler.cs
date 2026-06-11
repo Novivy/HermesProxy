@@ -333,9 +333,47 @@ namespace HermesProxy.World.Client
         [PacketHandler(Opcode.SMSG_MOVE_SPLINE_UNSET_FLYING)]
         void HandleSplineMovementMessages(WorldPacket packet)
         {
-            MoveSplineSetFlag spline = new MoveSplineSetFlag(packet.GetUniversalOpcode(false));
+            var universalOpcode = packet.GetUniversalOpcode(false);
+            MoveSplineSetFlag spline = new MoveSplineSetFlag(universalOpcode);
             spline.MoverGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
             SendPacketToClient(spline);
+
+            // Vanilla has no gravity/anim-tier concept for creatures: a parked hovering unit
+            // (Sapphiron air phase) reverts to grounded pose on modern clients as soon as the
+            // last fly spline ends or a cast anim plays. Synthesize the two modern airborne
+            // states from the hover toggle: spline gravity disable + UNIT_FIELD_BYTES_1 AnimTier.
+            if (universalOpcode == Opcode.SMSG_MOVE_SPLINE_SET_HOVER ||
+                universalOpcode == Opcode.SMSG_MOVE_SPLINE_UNSET_HOVER)
+            {
+                bool hoverOn = universalOpcode == Opcode.SMSG_MOVE_SPLINE_SET_HOVER;
+
+                // Tracked so SpellStart/SpellGo can strip cast visuals of hovering casters:
+                // the modern client's cast animation overrides the hover idle (grounded pose)
+                if (hoverOn)
+                    GetSession().GameState.HoveringUnits.Add(spline.MoverGUID);
+                else
+                    GetSession().GameState.HoveringUnits.Remove(spline.MoverGUID);
+
+                MoveSplineSetFlag gravity = new MoveSplineSetFlag(hoverOn ? Opcode.SMSG_MOVE_SPLINE_DISABLE_GRAVITY : Opcode.SMSG_MOVE_SPLINE_ENABLE_GRAVITY);
+                gravity.MoverGUID = spline.MoverGUID;
+                SendPacketToClient(gravity);
+
+                // The hover IDLE animation on modern clients is driven by this dedicated packet
+                // (same thing the PlayHoverAnim create-bit does for units created mid-hover)
+                SetPlayHoverAnim hoverAnim = new SetPlayHoverAnim();
+                hoverAnim.UnitGUID = spline.MoverGUID;
+                hoverAnim.PlayHoverAnim = hoverOn;
+                SendPacketToClient(hoverAnim);
+
+                ObjectUpdate updateData = new ObjectUpdate(spline.MoverGUID, UpdateTypeModern.Values, GetSession());
+                if (updateData.UnitData != null) // spline movers are units by protocol, but stay safe
+                {
+                    UpdateObject updateObject = new UpdateObject(GetSession().GameState);
+                    updateData.UnitData.AnimTier = (byte)(hoverOn ? 2 : 0); // 2 = Hover, 0 = Ground
+                    updateObject.ObjectUpdates.Add(updateData);
+                    SendPacketToClient(updateObject);
+                }
+            }
         }
 
         [PacketHandler(Opcode.SMSG_MOVE_ROOT)]

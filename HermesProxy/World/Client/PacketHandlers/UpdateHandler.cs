@@ -26,6 +26,7 @@ namespace HermesProxy.World.Client
             GetSession().GameState.ObjectCacheModern.Remove(guid);
             GetSession().GameState.ObjectCacheMutex.ReleaseMutex();
             GetSession().GameState.LastAuraCasterOnTarget.Remove(guid);
+            GetSession().GameState.HoveringUnits.Remove(guid);
 
             UpdateObject updateObject = new UpdateObject(GetSession().GameState);
             updateObject.DestroyedGuids.Add(guid);

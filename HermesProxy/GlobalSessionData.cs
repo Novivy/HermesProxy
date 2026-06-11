@@ -118,6 +118,7 @@ namespace HermesProxy
         public Dictionary<uint, long> BattleFieldQueueTimes = new Dictionary<uint, long>();
         public Dictionary<uint, uint> DailyQuestsDone = new Dictionary<uint, uint>();
         public HashSet<WowGuid128> FlagCarrierGuids = new HashSet<WowGuid128>();
+        public HashSet<WowGuid128> HoveringUnits = new HashSet<WowGuid128>(); // creatures with spline hover on; their cast visuals are stripped so the modern client keeps the hover idle anim (Sapphiron air phase)
         public Dictionary<WowGuid64, ushort> ObjectSpawnCount = new Dictionary<WowGuid64, ushort>();
         public HashSet<WowGuid64> DespawnedGameObjects = new();
         public HashSet<WowGuid128> HunterPetGuids = new HashSet<WowGuid128>();

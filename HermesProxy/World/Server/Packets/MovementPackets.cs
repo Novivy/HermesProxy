@@ -387,6 +387,21 @@ namespace HermesProxy.World.Server.Packets
         public WowGuid128 MoverGUID;
     }
 
+    public class SetPlayHoverAnim : ServerPacket
+    {
+        public SetPlayHoverAnim() : base(Opcode.SMSG_SET_PLAY_HOVER_ANIM, ConnectionType.Instance) { }
+
+        public override void Write()
+        {
+            _worldPacket.WritePackedGuid128(UnitGUID);
+            _worldPacket.WriteBit(PlayHoverAnim);
+            _worldPacket.FlushBits();
+        }
+
+        public WowGuid128 UnitGUID;
+        public bool PlayHoverAnim;
+    }
+
     public class MoveSetFlag : ServerPacket
     {
         public MoveSetFlag(Opcode opcode) : base(opcode, ConnectionType.Instance) { }

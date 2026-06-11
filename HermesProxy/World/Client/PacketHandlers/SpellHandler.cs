@@ -416,6 +416,11 @@ namespace HermesProxy.World.Client
             SpellStart spell = new SpellStart();
             spell.Cast = HandleSpellStartOrGo(packet, false);
 
+            // Hovering casters (Sapphiron air phase): the modern client's cast animation overrides
+            // the hover idle and grounds the model; strip the visual, the castbar is unaffected
+            if (GetSession().GameState.HoveringUnits.Contains(spell.Cast.CasterUnit))
+                spell.Cast.SpellXSpellVisualID = 0;
+
             byte failPending = 0;
             ClientCastRequest startedNormal;
             ClientCastRequest startedPet;
@@ -496,6 +501,8 @@ namespace HermesProxy.World.Client
 
             SpellGo spell = new SpellGo();
             spell.Cast = HandleSpellStartOrGo(packet, true);
+            // (hovering casters keep their GO visuals: the release anim does not ground the
+            // model — observed on Sapphiron — and stripping it would lose missile visuals)
             WorldPacket pendingGoPacket = null;
             lock (GetSession().GameState.SpellCastLock)
             {
