@@ -440,9 +440,29 @@ namespace HermesProxy.World.Client
         [PacketHandler(Opcode.MSG_QUEST_PUSH_RESULT)]
         void HandleQuestPushResult(WorldPacket packet)
         {
+            WowGuid128 senderGuid = packet.ReadGuid().To128(GetSession().GameState);
+            LegacyQuestPushReason legacyReason = (LegacyQuestPushReason)packet.ReadUInt8();
+
+            // The modern client uses a different enum than the legacy server (it inserts Dead at 6,
+            // shifting LogFull/OnQuest/AlreadyDone up by one), so the reason must be translated.
+            QuestPushReason modernReason;
+            switch (legacyReason)
+            {
+                case LegacyQuestPushReason.SharingQuest:  modernReason = QuestPushReason.Success;     break;
+                case LegacyQuestPushReason.CantTakeQuest: modernReason = QuestPushReason.Invalid;     break;
+                case LegacyQuestPushReason.AcceptQuest:   modernReason = QuestPushReason.Accepted;    break;
+                case LegacyQuestPushReason.DeclineQuest:  modernReason = QuestPushReason.Declined;    break;
+                case LegacyQuestPushReason.Busy:          modernReason = QuestPushReason.Busy;        break;
+                case LegacyQuestPushReason.LogFull:       modernReason = QuestPushReason.LogFull;     break;
+                case LegacyQuestPushReason.HaveQuest:     modernReason = QuestPushReason.OnQuest;     break;
+                case LegacyQuestPushReason.FinishQuest:   modernReason = QuestPushReason.AlreadyDone; break;
+                case LegacyQuestPushReason.TooFar:        modernReason = QuestPushReason.TooFar;      break;
+                default:                                  return; // unknown, do not forward
+            }
+
             QuestPushResult quest = new QuestPushResult();
-            quest.SenderGUID = packet.ReadGuid().To128(GetSession().GameState);
-            quest.Result = (QuestPushReason)packet.ReadUInt8();
+            quest.SenderGUID = senderGuid;
+            quest.Result = modernReason;
             SendPacketToClient(quest);
         }
     }

@@ -144,21 +144,35 @@ namespace HermesProxy.World.Enums
         HasInProgress = 30        // "Progress Bar Objective Not Completed"
     }
 
+    // Modern client (1.14 / 2.5) quest push result values, confirmed empirically against the
+    // 1.14.2 (42597) client. This is NOT TrinityCore master's enum: it keeps TooFar and inserts
+    // Dead at 6, which shifts LogFull/OnQuest/AlreadyDone up by one versus the legacy server.
     public enum QuestPushReason
     {
         Success = 0,
         Invalid = 1,
         Accepted = 2,
         Declined = 3,
-        Busy = 4,
-        Dead = 5,
-        LogFull = 6,
-        OnQuest = 7,
-        AlreadyDone = 8,
-        NotDaily = 9,
-        TimerExpired = 10,
-        NotInParty = 11,
-        DifferentServerDaily = 12,
-        NotAllowed = 13
+        TooFar = 4,
+        Busy = 5,
+        Dead = 6,
+        LogFull = 7,
+        OnQuest = 8,
+        AlreadyDone = 9,
+        NotDaily = 10
+    }
+
+    // Legacy server (1.12.1 / 2.4.3 mangos QuestShareMessages) quest push result values.
+    public enum LegacyQuestPushReason
+    {
+        SharingQuest = 0,   // -> QuestPushReason.Success
+        CantTakeQuest = 1,  // -> QuestPushReason.Invalid
+        AcceptQuest = 2,    // -> QuestPushReason.Accepted
+        DeclineQuest = 3,   // -> QuestPushReason.Declined
+        TooFar = 4,         // -> QuestPushReason.TooFar
+        Busy = 5,           // -> QuestPushReason.Busy
+        LogFull = 6,        // -> QuestPushReason.LogFull
+        HaveQuest = 7,      // -> QuestPushReason.OnQuest
+        FinishQuest = 8     // -> QuestPushReason.AlreadyDone
     }
 }

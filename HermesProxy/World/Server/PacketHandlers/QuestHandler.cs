@@ -152,9 +152,19 @@ namespace HermesProxy.World.Server
         [PacketHandler(Opcode.CMSG_QUEST_PUSH_RESULT)]
         void HandleQuestPushResult(QuestPushResultResponse quest)
         {
+            // Translate the modern client's result back to the legacy server enum.
+            // The client only ever sends Accepted/Declined here.
+            LegacyQuestPushReason legacyReason;
+            switch (quest.Result)
+            {
+                case QuestPushReason.Accepted: legacyReason = LegacyQuestPushReason.AcceptQuest;  break;
+                case QuestPushReason.Declined: legacyReason = LegacyQuestPushReason.DeclineQuest; break;
+                default:                       legacyReason = LegacyQuestPushReason.DeclineQuest; break;
+            }
+
             WorldPacket packet = new WorldPacket(Opcode.MSG_QUEST_PUSH_RESULT);
             packet.WriteGuid(quest.SenderGUID.To64());
-            packet.WriteUInt8((byte)quest.Result);
+            packet.WriteUInt8((byte)legacyReason);
             SendPacketToServer(packet);
         }
     }
