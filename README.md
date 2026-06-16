@@ -1,3 +1,8 @@
+Official HermesProxy version for WOW-HC.com
+
+[https://wow-hc.com](https://wow-hc.com)
+
+
 # HermesProxy ![Build](https://github.com/WowLegacyCore/HermesProxy/actions/workflows/Build_Proxy.yml/badge.svg)
 
 This project enables play on existing legacy WoW emulation cores using the modern clients. It serves as a translation layer, converting all network traffic to the appropriate format each side can understand.
