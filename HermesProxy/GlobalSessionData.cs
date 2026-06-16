@@ -318,6 +318,27 @@ namespace HermesProxy
                 return GameData.IsAllianceRace(cache.RaceId);
             return false;
         }
+        // Returns the local player's battleground team for SMSG_BATTLEFIELD_STATUS_ACTIVE.
+        // 1 = Alliance, 0 = Horde, matching the convention used for other players' ArenaFaction.
+        // Vanilla (1.12) servers send no team byte in the BG status packet, so we derive it from
+        // the player's own (possibly cross-faction-overridden) faction template. Without this the
+        // 1.14 client defaults the local team to 0 (Horde), which makes Alliance-team players see
+        // the enemy Horde team as friendly/green and unable to be attacked.
+        public byte GetOwnBattlegroundArenaFaction()
+        {
+            uint factionTemplate = GetLegacyFieldValueUInt32(CurrentPlayerGuid, UnitField.UNIT_FIELD_FACTIONTEMPLATE);
+            if (factionTemplate != 0)
+                return (byte)(GameData.IsAllianceFactionTemplate((int)factionTemplate) ? 1 : 0);
+
+            // Fallback to race if the faction template isn't cached yet. Correct except for a
+            // cross-faction-assigned local player, whose overridden faction template should
+            // normally already be cached by the time the BG status packet arrives.
+            PlayerCache cache;
+            if (CachedPlayers.TryGetValue(CurrentPlayerGuid, out cache) && cache.RaceId != Race.None)
+                return (byte)(GameData.IsAllianceRace(cache.RaceId) ? 1 : 0);
+
+            return 0;
+        }
         public bool IsInBattleground()
         {
             if (CurrentMapId == null)

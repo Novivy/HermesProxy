@@ -124,6 +124,11 @@ namespace HermesProxy.World.Client
                         active.Mapid = mapId;
                         active.ShutdownTimer = packet.ReadUInt32();
                         active.StartTimer = packet.ReadUInt32();
+                        // Vanilla SMSG_BATTLEFIELD_STATUS carries no team byte. Derive the local
+                        // player's BG team so the 1.14 client colors friend/foe correctly; without
+                        // this it defaults to 0 (Horde) and Alliance-team players cannot attack the
+                        // enemy Horde team (they appear green/friendly).
+                        active.ArenaFaction = GetSession().GameState.GetOwnBattlegroundArenaFaction();
                         if (active.ShutdownTimer == 0)
                         {
                             BattlegroundInit init = new BattlegroundInit();
