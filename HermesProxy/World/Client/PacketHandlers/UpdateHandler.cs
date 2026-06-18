@@ -1630,9 +1630,17 @@ namespace HermesProxy.World.Client
                         });
 
                         if (!factionTemplateUpdated)
-                            // Only fall back to race-based ArenaFaction when faction template wasn't in this update.
-                            // If faction template was already processed above, it takes priority over race.
-                            updateData.PlayerData.ArenaFaction = (byte)(GameData.IsAllianceRace((Race)updateData.UnitData.RaceId) ? 1 : 0);
+                        {
+                            // Faction template wasn't in this update. The faction template (with any
+                            // cross-faction BG override) is authoritative for the BG team, NOT the race:
+                            // a cross-faction player's real race is the wrong team. Prefer the last-known
+                            // cached faction template; only fall back to race if none is cached.
+                            uint cachedFaction = GetSession().GameState.GetLegacyFieldValueUInt32(guid, UnitField.UNIT_FIELD_FACTIONTEMPLATE);
+                            if (cachedFaction != 0)
+                                updateData.PlayerData.ArenaFaction = (byte)(GameData.IsAllianceFactionTemplate((int)cachedFaction) ? 1 : 0);
+                            else
+                                updateData.PlayerData.ArenaFaction = (byte)(GameData.IsAllianceRace((Race)updateData.UnitData.RaceId) ? 1 : 0);
+                        }
                     }
                 }
 

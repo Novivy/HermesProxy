@@ -506,10 +506,11 @@ namespace HermesProxy.World
         {
             switch (factionTemplate)
             {
-                case 1:  // Human
-                case 3:  // Dwarf
-                case 4:  // Night Elf
-                case 7:  // Gnome
+                case 1:   // Human
+                case 3:   // Dwarf
+                case 4:   // Night Elf
+                case 115: // Gnome (ChrRaces.FactionID, NOT race id 7 — the old "case 7" mis-tagged
+                          // every Gnome as Horde so they couldn't be told apart from the enemy team)
                     return true;
             }
             return false;
