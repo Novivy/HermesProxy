@@ -2172,6 +2172,23 @@ namespace HermesProxy.World.Client
                     if (legacyFlags.HasAnyFlag(PlayerFlagsLegacy.HideCloak))
                         updateData.PlayerData.PlayerFlagsEx |= (uint)PlayerFlagsEx.HideCloak;
 
+                    // [XFACTION] Cross-faction (mercenary): if the player's race-faction differs from his
+                    // (possibly BG-overridden) faction template, flag MercenaryMode so the 1.14 client
+                    // displays him as the team he is actually playing for (portrait emblem, faction UI)
+                    // WITHOUT altering the race byte (which would corrupt his own racials/spellbook/model).
+                    // Prefer fields from this update, else the last-known cached values.
+                    {
+                        uint raceVal = updateData.UnitData.RaceId != null
+                            ? (uint)updateData.UnitData.RaceId
+                            : (GetSession().GameState.GetLegacyFieldValueUInt32(guid, UnitField.UNIT_FIELD_BYTES_0) & 0xFF);
+                        uint facVal = updateData.UnitData.FactionTemplate != null
+                            ? (uint)updateData.UnitData.FactionTemplate
+                            : GetSession().GameState.GetLegacyFieldValueUInt32(guid, UnitField.UNIT_FIELD_FACTIONTEMPLATE);
+                        if (raceVal != 0 && facVal != 0
+                            && GameData.IsAllianceRace((Race)raceVal) != GameData.IsAllianceFactionTemplate((int)facVal))
+                            updateData.PlayerData.PlayerFlagsEx |= (uint)PlayerFlagsEx.MercenaryMode;
+                    }
+
                     if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V3_0_2_9056) &&
                         updateData.UnitData.PvpFlags == null)
                         updateData.UnitData.PvpFlags = ReadPvPFlags(updates);
