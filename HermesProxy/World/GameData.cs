@@ -1789,9 +1789,11 @@ namespace HermesProxy.World
         public const uint HotfixCreatureDisplayInfoExtraBegin = 280000;
         public const uint HotfixCreatureDisplayInfoOptionBegin = 290000;
         public const uint HotfixSpellReagentsBegin = 300000;
+        public const uint HotfixSpellVisualEffectNameBegin = 310000;
         public static Dictionary<uint, HotfixRecord> Hotfixes = new Dictionary<uint, HotfixRecord>();
         public static void LoadHotfixes()
         {
+            LoadSpellVisualEffectNameHotfixes();
             LoadAreaTriggerHotfixes();
             LoadSkillLineHotfixes();
             LoadSkillRaceClassInfoHotfixes();
@@ -1813,6 +1815,74 @@ namespace HermesProxy.World
             LoadSpellReagentsHotfixes();
         }
         
+        // Bumps the scale of ground spell visuals on the modern client. Used to enlarge Kel'Thuzad's
+        // Shadow Fissure telegraph (SpellVisualEffectName 307 = the "Dark Ritual" ground rune, model
+        // darkritual_precast_base.m2). The data is identical to 1.12, but Blizzard's modern .m2 renders
+        // smaller than the vanilla .mdx at the same Scale=1, so we override Scale here for 1.14 only.
+        // Build 1.14.2 layout (WoWDBDefs): ID is $noninline$ -> carried by RecordId, NOT in content.
+        public static void LoadSpellVisualEffectNameHotfixes()
+        {
+            var path = Path.Combine("CSV", "Hotfix", $"SpellVisualEffectName{ModernVersion.ExpansionVersion}.csv");
+            if (!File.Exists(path))
+                return;
+            using (TextFieldParser csvParser = new TextFieldParser(path))
+            {
+                csvParser.CommentTokens = new string[] { "#" };
+                csvParser.SetDelimiters(new string[] { "," });
+                csvParser.HasFieldsEnclosedInQuotes = false;
+
+                // Skip the row with the column names
+                csvParser.ReadLine();
+
+                uint counter = 0;
+                while (!csvParser.EndOfData)
+                {
+                    counter++;
+
+                    string[] fields = csvParser.ReadFields();
+
+                    uint id = UInt32.Parse(fields[0]);
+                    int modelFileDataId = Int32.Parse(fields[1]);
+                    float baseMissileSpeed = Single.Parse(fields[2]);
+                    float scale = Single.Parse(fields[3]);
+                    float minAllowedScale = Single.Parse(fields[4]);
+                    float maxAllowedScale = Single.Parse(fields[5]);
+                    float alpha = Single.Parse(fields[6]);
+                    uint flags = UInt32.Parse(fields[7]);
+                    int textureFileDataId = Int32.Parse(fields[8]);
+                    float effectRadius = Single.Parse(fields[9]);
+                    uint type = UInt32.Parse(fields[10]);
+                    int genericId = Int32.Parse(fields[11]);
+                    uint ribbonQualityId = UInt32.Parse(fields[12]);
+                    int dissolveEffectId = Int32.Parse(fields[13]);
+                    int modelPosition = Int32.Parse(fields[14]);
+
+                    HotfixRecord record = new HotfixRecord();
+                    record.TableHash = DB2Hash.SpellVisualEffectName;
+                    record.HotfixId = HotfixSpellVisualEffectNameBegin + counter;
+                    record.UniqueId = record.HotfixId;
+                    record.RecordId = id;
+                    record.Status = HotfixStatus.Valid;
+                    // ID is non-inline (in the id-block), so it is NOT written into the record content.
+                    record.HotfixContent.WriteInt32(modelFileDataId);
+                    record.HotfixContent.WriteFloat(baseMissileSpeed);
+                    record.HotfixContent.WriteFloat(scale);
+                    record.HotfixContent.WriteFloat(minAllowedScale);
+                    record.HotfixContent.WriteFloat(maxAllowedScale);
+                    record.HotfixContent.WriteFloat(alpha);
+                    record.HotfixContent.WriteUInt32(flags);
+                    record.HotfixContent.WriteInt32(textureFileDataId);
+                    record.HotfixContent.WriteFloat(effectRadius);
+                    record.HotfixContent.WriteUInt32(type);
+                    record.HotfixContent.WriteInt32(genericId);
+                    record.HotfixContent.WriteUInt32(ribbonQualityId);
+                    record.HotfixContent.WriteInt32(dissolveEffectId);
+                    record.HotfixContent.WriteInt32(modelPosition);
+                    Hotfixes.Add(record.HotfixId, record);
+                }
+            }
+        }
+
         public static void LoadAreaTriggerHotfixes()
         {
             var path = Path.Combine("CSV", "Hotfix", $"AreaTrigger{ModernVersion.ExpansionVersion}.csv");
