@@ -666,6 +666,27 @@ namespace HermesProxy.World.Server.Packets
         public byte Reason;
     }
 
+    // Vanilla (1.12) has no interrupt opcode, so the modern client never dismisses a mob's
+    // cast bar nor fires COMBAT_LOG_EVENT SPELL_INTERRUPT when a cast is kicked/counterspelled.
+    // The proxy synthesizes this modern packet on a mob's SMSG_SPELL_FAILED_OTHER (interrupted).
+    public class SpellInterruptLog : ServerPacket
+    {
+        public SpellInterruptLog() : base(Opcode.SMSG_SPELL_INTERRUPT_LOG, ConnectionType.Instance) { }
+
+        public override void Write()
+        {
+            _worldPacket.WritePackedGuid128(Caster);
+            _worldPacket.WritePackedGuid128(Victim);
+            _worldPacket.WriteInt32(InterruptedSpellID);
+            _worldPacket.WriteInt32(BackfireSpellID);
+        }
+
+        public WowGuid128 Caster;
+        public WowGuid128 Victim;
+        public int InterruptedSpellID;
+        public int BackfireSpellID;
+    }
+
     public class SpellStart : ServerPacket
     {
         public SpellCastData Cast;

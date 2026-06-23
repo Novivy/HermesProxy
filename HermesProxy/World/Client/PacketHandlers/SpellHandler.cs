@@ -397,6 +397,24 @@ namespace HermesProxy.World.Client
             spell2.Reason = reason;
             SendPacketToClient(spell2);
 
+            // For an interrupted mob cast (kick/counterspell/Earth Shock), vanilla only sends
+            // SMSG_SPELL_FAILED_OTHER, which on its own does not dismiss the modern nameplate
+            // cast bar nor fire COMBAT_LOG_EVENT SPELL_INTERRUPT (so interrupt announces and
+            // Plater's "Interrupted" never trigger). Synthesize the modern interrupt log here.
+            // reason 61 = Interrupted (vanilla SPELL_FAILED_OTHER is only sent on interrupt, so
+            // the default reason is 61). Attribute it to the local player, the reliable kick source.
+            if (reason == 61 &&
+                casterUnit != GetSession().GameState.CurrentPlayerGuid &&
+                casterUnit != GetSession().GameState.CurrentPetGuid)
+            {
+                SpellInterruptLog interruptLog = new SpellInterruptLog();
+                interruptLog.Caster = GetSession().GameState.CurrentPlayerGuid;
+                interruptLog.Victim = casterUnit;
+                interruptLog.InterruptedSpellID = (int)spellId;
+                interruptLog.BackfireSpellID = (int)spellId;
+                SendPacketToClient(interruptLog);
+            }
+
             // Fast-path retract: when the server broadcasts a failure for an
             // auto-repeat spell from a remote unit, we know the volley ended, so
             // skip the timer and retract the bow immediately.
