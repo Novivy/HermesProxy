@@ -3126,5 +3126,37 @@ namespace HermesProxy.World.Client
                 }
             }
         }
+
+        // wowhc custom opcode 0x429: self stats the 1.12 protocol has no update field for
+        // (+healing, physical hit %, spell hit %). Translated into ActivePlayerData so
+        // GetSpellBonusHealing() / GetHitModifier() / GetSpellHitModifier() return real values on
+        // the 1.14 client (CharacterStatsClassic stat panel, HealComm incoming-heal scaling).
+        [PacketHandler(Opcode.SMSG_HERMES_PLAYER_STATS)]
+        void HandleHermesPlayerStats(WorldPacket packet)
+        {
+            int healingBonus = packet.ReadInt32();
+            float meleeHitChance = packet.ReadFloat();
+            float spellHitChance = packet.ReadFloat();
+            // per-school spell crit (server SPELL_SCHOOL order: normal, holy, fire, nature, frost, shadow, arcane)
+            float[] spellCrit = new float[7];
+            for (int i = 0; i < 7; i++)
+                spellCrit[i] = packet.ReadFloat();
+
+            WowGuid128 guid = GetSession().GameState.CurrentPlayerGuid;
+            if (guid == null)
+                return;
+
+            UpdateObject updateObject = new UpdateObject(GetSession().GameState);
+            ObjectUpdate updateData = new ObjectUpdate(guid, UpdateTypeModern.Values, GetSession());
+            updateData.ActivePlayerData.ModHealingDonePos = healingBonus;
+            updateData.ActivePlayerData.UiHitModifier = meleeHitChance;
+            updateData.ActivePlayerData.UiSpellHitModifier = spellHitChance;
+            for (int i = 0; i < 7; i++)
+                updateData.ActivePlayerData.SpellCritPercentage[i] = spellCrit[i];
+            updateObject.ObjectUpdates.Add(updateData);
+            SendPacketToClient(updateObject);
+
+            Log.Print(LogType.Debug, $"HERMES_PLAYER_STATS -> client: +healing={healingBonus}, hit={meleeHitChance}, spellHit={spellHitChance}, spellCrit=[{string.Join(",", spellCrit)}]");
+        }
     }
 }

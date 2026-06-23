@@ -166,6 +166,8 @@ namespace HermesProxy.World.Enums
         CMSG_ACCEPT_GUILD_INVITE,
         CMSG_ACCEPT_LEVEL_GRANT,
         CMSG_HERMES_VERSION,
+        // wowhc custom: self stats (+healing / physical hit / spell hit) the 1.12 protocol has no field for
+        SMSG_HERMES_PLAYER_STATS,
         CMSG_ACCEPT_LFG_MATCH,
         CMSG_ACCEPT_TRADE,
         CMSG_ACCEPT_WARGAME_INVITE,

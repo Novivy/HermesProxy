@@ -846,6 +846,8 @@ namespace HermesProxy.World.Enums.V1_12_1_5875
         SMSG_HIGHEST_THREAT_UPDATE                            = 0x425,
         SMSG_THREAT_UPDATE                                    = 0x426,
         SMSG_THREAT_REMOVE                                    = 0x427,
-        SMSG_THREAT_CLEAR                                     = 0x428
+        SMSG_THREAT_CLEAR                                     = 0x428,
+        // custom wowhc server extension: self stats (+healing / physical hit / spell hit) for 1.14 stat addons
+        SMSG_HERMES_PLAYER_STATS                              = 0x429
     }
 }
