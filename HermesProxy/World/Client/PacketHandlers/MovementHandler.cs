@@ -10,6 +10,31 @@ namespace HermesProxy.World.Client
 {
     public partial class WorldClient
     {
+        // True if we've seen this creature swimming. Registry seeded in
+        // UpdateHandler.ReadMovementUpdateBlock when a creature carries MovementFlag.Swimming.
+        private bool IsSwimmingMob(WowGuid128 guid)
+        {
+            return GetSession().GameState.KnownSwimmingMobs.Contains(guid);
+        }
+
+        // Fix up a swimming creature's (already Modern-format) movement flags before they reach
+        // the modern client. The vanilla protocol never sent gravity/anim-tier state for aquatic
+        // NPCs, so without this the 1.14 client ground-snaps the model to the water surface and
+        // plays the walk anim. Ensure the Swimming bit is set, drop the falling bits, and disable
+        // gravity so the client renders the swim moving anim. Call AFTER the WotLK->Modern cast.
+        private bool ApplySwimOverrideIfNeeded(WowGuid128 guid, MovementInfo moveInfo)
+        {
+            if (!IsSwimmingMob(guid))
+                return false;
+
+            moveInfo.Flags &= ~(uint)(MovementFlagModern.Falling | MovementFlagModern.FallingFar);
+            moveInfo.Flags |= (uint)(MovementFlagModern.Swimming | MovementFlagModern.DisableGravity);
+            moveInfo.FallTime = 0;
+            moveInfo.JumpVerticalSpeed = 0.0f;
+            moveInfo.JumpHorizontalSpeed = 0.0f;
+            return true;
+        }
+
         // Handlers for SMSG opcodes coming the legacy world server
         [PacketHandler(Opcode.MSG_MOVE_START_FORWARD)]
         [PacketHandler(Opcode.MSG_MOVE_START_BACKWARD)]
@@ -54,6 +79,7 @@ namespace HermesProxy.World.Client
             moveUpdate.MoveInfo = new();
             moveUpdate.MoveInfo.ReadMovementInfoLegacy(packet, GetSession().GameState);
             moveUpdate.MoveInfo.Flags = (uint)(((MovementFlagWotLK)moveUpdate.MoveInfo.Flags).CastFlags<MovementFlagModern>());
+            ApplySwimOverrideIfNeeded(moveUpdate.MoverGUID, moveUpdate.MoveInfo);
             moveUpdate.MoveInfo.ValidateMovementInfo();
             SendPacketToClient(moveUpdate);
         }
@@ -461,6 +487,10 @@ namespace HermesProxy.World.Client
                 case SplineTypeLegacy.Stop:
                 {
                     moveSpline.SplineType = SplineTypeModern.None;
+                    // Keep the swim idle anim on stop; without AnimTierSwim the modern client
+                    // reverts to ground anim and snaps the mob's Z to the water surface.
+                    if (IsSwimmingMob(guid))
+                        moveSpline.SplineFlags |= SplineFlagModern.AnimTierSwim | SplineFlagModern.CanSwim;
                     MonsterMove moveStop = new MonsterMove(guid, moveSpline);
                     SendPacketToClient(moveStop);
                     return;
@@ -519,6 +549,21 @@ namespace HermesProxy.World.Client
                 hasCatmullRom = splineFlags.HasAnyFlag(SplineFlagWotLK.Flying | SplineFlagWotLK.CatmullRom);
                 hasTaxiFlightFlags = splineFlags == (SplineFlagWotLK.WalkMode | SplineFlagWotLK.Flying);
                 moveSpline.SplineFlags = splineFlags.CastFlags<SplineFlagModern>();
+            }
+
+            // Swimming creatures: synthesize the swim spline state so the modern client plays the swim
+            // moving animation (AnimTierSwim + CanSwim) and does not ground-snap (strip SmoothGroundPath).
+            // Read the unit flag DIRECTLY from the cached fields (same source the vanilla branch uses
+            // above) so this does not depend on create-time seeding firing first. This core sets
+            // UNIT_FLAG_SWIMMING (0x8000, read as UnitFlagsVanilla.CanSwim) on every water-capable
+            // creature; the 1.14 client still selects walk-vs-swim by liquid, so this is a capability
+            // hint, not a forced on-land swim. Restricted to creatures (never players/pets).
+            uint cachedUnitFlags = GetSession().GameState.GetLegacyFieldValueUInt32(guid, UnitField.UNIT_FIELD_FLAGS);
+            bool unitCanSwim = ((UnitFlagsVanilla)cachedUnitFlags).HasAnyFlag(UnitFlagsVanilla.CanSwim);
+            if (guid.GetHighType() == HighGuidType.Creature && (unitCanSwim || IsSwimmingMob(guid)))
+            {
+                moveSpline.SplineFlags &= ~(SplineFlagModern.SmoothGroundPath | SplineFlagModern.Falling | SplineFlagModern.FallingSlow | SplineFlagModern.Flying);
+                moveSpline.SplineFlags |= SplineFlagModern.AnimTierSwim | SplineFlagModern.CanSwim;
             }
 
             if (hasAnimTier)

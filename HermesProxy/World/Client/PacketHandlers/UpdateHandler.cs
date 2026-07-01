@@ -27,6 +27,7 @@ namespace HermesProxy.World.Client
             GetSession().GameState.ObjectCacheMutex.ReleaseMutex();
             GetSession().GameState.LastAuraCasterOnTarget.Remove(guid);
             GetSession().GameState.HoveringUnits.Remove(guid);
+            GetSession().GameState.KnownSwimmingMobs.Remove(guid);
 
             UpdateObject updateObject = new UpdateObject(GetSession().GameState);
             updateObject.DestroyedGuids.Add(guid);
@@ -1062,9 +1063,21 @@ namespace HermesProxy.World.Client
                     moveInfo.Rotation = rotation;
             }
 
+            // Swimming creatures: vanilla carries MovementFlag.Swimming on their MovementInfo, but
+            // the modern 1.14 client won't infer swimming from liquid the way 1.12 did. Register the
+            // guid (while flags are still in WotLK form) so StoreObjectUpdateInternal / HandleMonsterMove
+            // can synthesize AnimTier=Swim, UnitFlag.CanSwim and spline AnimTierSwim/CanSwim for it.
+            // Restricted to creatures so players/pets that legitimately move between water and land
+            // aren't permanently flagged as swimming after a single observation.
+            if (moveInfo != null &&
+                guid.GetHighType() == HighGuidType.Creature &&
+                ((MovementFlagWotLK)moveInfo.Flags).HasAnyFlag(MovementFlagWotLK.Swimming))
+                GetSession().GameState.KnownSwimmingMobs.Add(guid.To128(GetSession().GameState));
+
             if (updateData != null && moveInfo != null)
             {
                 moveInfo.Flags = (uint)(((MovementFlagWotLK)moveInfo.Flags).CastFlags<MovementFlagModern>());
+                ApplySwimOverrideIfNeeded(guid.To128(GetSession().GameState), moveInfo);
                 moveInfo.ValidateMovementInfo();
                 updateData.CreateData.MoveInfo = moveInfo;
             }
@@ -1743,6 +1756,17 @@ namespace HermesProxy.World.Client
                         UnitFlagsVanilla vanillaFlags = (UnitFlagsVanilla)updates[UNIT_FIELD_FLAGS].UInt32Value;
                         updateData.UnitData.Flags = (uint)(vanillaFlags.CastFlags<UnitFlags>());
 
+                        // Swimming creatures: this core sets UNIT_FLAG_SWIMMING (bit 0x8000, read here
+                        // as UnitFlagsVanilla.CanSwim) on EVERY water-capable creature — a reliable
+                        // swimmer marker. (The movement-block MOVEFLAG_SWIMMING is only set for creatures
+                        // that spawned in swimmable water, so it's not dependable.) The modern 1.14 client
+                        // ignores this bit for animation (it uses AnimTier), so register the creature as a
+                        // swimmer; AnimTier=Swim is forced below and the spline gets AnimTierSwim/CanSwim
+                        // in HandleMonsterMove. The 0x8000 bit itself is already carried over by CastFlags.
+                        if (guid.GetHighType() == HighGuidType.Creature &&
+                            vanillaFlags.HasAnyFlag(UnitFlagsVanilla.CanSwim))
+                            GetSession().GameState.KnownSwimmingMobs.Add(guid);
+
                         if (vanillaFlags.HasAnyFlag(UnitFlagsVanilla.PetRename))
                         {
                             if (updateData.UnitData.PetFlags == null)
@@ -1880,6 +1904,24 @@ namespace HermesProxy.World.Client
                     {
                         updateData.UnitData.ShapeshiftForm = (byte)((updates[UNIT_FIELD_BYTES_1].UInt32Value >> 16) & 0xFF);
                         updateData.UnitData.VisFlags = (byte)((updates[UNIT_FIELD_BYTES_1].UInt32Value >> 24) & 0xFF);
+                    }
+                }
+                // Swimming creatures: the vanilla protocol has no AnimTier concept, so the modern
+                // client defaults to the ground/walk anim underwater. Force AnimTier=Swim for mobs
+                // registered as swimming (seeded from UNIT_FLAG_SWIMMING in the flags block above,
+                // which runs earlier in this same method on the create packet).
+                if (GetSession().GameState.KnownSwimmingMobs.Contains(guid))
+                {
+                    updateData.UnitData.AnimTier = 1; // AnimTier.Swim
+
+                    // A creature already moving when the player logs in is sent with its spline
+                    // embedded in the CreateObject block (updateData.CreateData.MoveSpline), NOT via a
+                    // standalone SMSG_ON_MONSTER_MOVE, so HandleMonsterMove never touches it and it
+                    // walks until the server issues its next move. Apply the same swim synthesis here.
+                    if (updateData.CreateData != null && updateData.CreateData.MoveSpline != null)
+                    {
+                        updateData.CreateData.MoveSpline.SplineFlags &= ~(SplineFlagModern.SmoothGroundPath | SplineFlagModern.Falling | SplineFlagModern.FallingSlow | SplineFlagModern.Flying);
+                        updateData.CreateData.MoveSpline.SplineFlags |= SplineFlagModern.AnimTierSwim | SplineFlagModern.CanSwim;
                     }
                 }
                 int UNIT_FIELD_PETNUMBER = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_PETNUMBER);
