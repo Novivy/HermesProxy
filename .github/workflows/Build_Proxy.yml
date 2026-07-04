@@ -82,6 +82,27 @@ jobs:
       contents: write
 
     steps:
+      # Fail before publishing if this tag was already released to R2. The versioned
+      # hermes/<tag>/ objects are immutable + CDN-cached, so re-publishing risks a stale
+      # download. Force a fresh tag instead.
+      - name: Guard against re-publishing an existing tag
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION:    auto
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET:   ${{ secrets.R2_BUCKET }}
+          TAG:         ${{ github.ref_name }}
+          KEY_PREFIX:  hermes
+        run: |
+          set -uo pipefail
+          out=$(aws s3api list-objects-v2 --bucket "$R2_BUCKET" --prefix "$KEY_PREFIX/$TAG/" --max-keys 1 --endpoint-url "$R2_ENDPOINT" 2>/dev/null || true)
+          if echo "$out" | grep -q '"Key"'; then
+            echo "::error::Tag $TAG already exists on R2 under $KEY_PREFIX/$TAG/. Bump the version and push a new tag."
+            exit 1
+          fi
+          echo "OK: $TAG not yet on R2 - safe to publish."
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -94,6 +115,66 @@ jobs:
             newname=$(echo "$f" | sed "s/-${{ github.sha }}//")
             mv "$f" "$newname"
           done
+
+      - name: Publish release to R2
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION:    auto
+          # Defensive: AWS CLI v2 CRC headers can 501 on some R2 endpoints.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}   # https://<accountid>.r2.cloudflarestorage.com
+          R2_BUCKET:   ${{ secrets.R2_BUCKET }}     # same bucket behind client.wow-hc.com
+          TAG:         ${{ github.ref_name }}
+          # KEY_PREFIX = bucket-relative write path. The origin already serves from the
+          # bucket's wowhc/ root, so do NOT repeat it here. Objects land at
+          # <bucket>/hermes/... and are served at PUBLIC_BASE.
+          KEY_PREFIX:  hermes
+          PUBLIC_BASE: https://client.wow-hc.com/hermes
+        run: |
+          set -euo pipefail
+          cd artifacts
+          B="s3://$R2_BUCKET/$KEY_PREFIX"
+          NOCACHE="no-cache, max-age=0"
+          IMMUT="public, max-age=31536000, immutable"
+          WIN="HermesProxy-windows-X64.zip"
+          LIN="HermesProxy-ubuntu-X64.tar.gz"
+          MAC="HermesProxy-macos-universal.zip"
+
+          # 1. Versioned assets (a tag is built once -> cache forever).
+          for f in "$WIN" "$LIN" "$MAC"; do
+            aws s3 cp "$f" "$B/$TAG/$f" --endpoint-url "$R2_ENDPOINT" --cache-control "$IMMUT"
+          done
+
+          # 2. Manifest mirrors the minimal GitHub release schema. The launcher's
+          #    RunHermesUpdateCheck -> FindAssetUrl picks the URL containing "win"
+          #    (the windows zip); the other two are for direct downloads.
+          base="$PUBLIC_BASE/$TAG"
+          jq -n --arg tag "$TAG" --arg base "$base" \
+            --arg win "$WIN" --argjson winsize "$(stat -c%s "$WIN")" \
+            --arg lin "$LIN" --argjson linsize "$(stat -c%s "$LIN")" \
+            --arg mac "$MAC" --argjson macsize "$(stat -c%s "$MAC")" '
+            { tag_name: $tag,
+              assets: [
+                { name: $win, browser_download_url: ($base+"/"+$win), size: $winsize },
+                { name: $lin, browser_download_url: ($base+"/"+$lin), size: $linsize },
+                { name: $mac, browser_download_url: ($base+"/"+$mac), size: $macsize }
+              ] }' > manifest.json
+          aws s3 cp manifest.json "$B/$TAG/manifest.json" --endpoint-url "$R2_ENDPOINT" --content-type application/json --cache-control "$NOCACHE"
+
+          # 3. Moving pointers. Pre-release (tag contains '-') -> latest-test.json only;
+          #    stable -> latest.json + the latest/ mirror (fixed download URLs).
+          if [[ "$TAG" == *-* ]]; then
+            aws s3 cp manifest.json "$B/latest-test.json" --endpoint-url "$R2_ENDPOINT" --content-type application/json --cache-control "$NOCACHE"
+            echo "Pre-release -> latest-test.json"
+          else
+            aws s3 cp manifest.json "$B/latest.json" --endpoint-url "$R2_ENDPOINT" --content-type application/json --cache-control "$NOCACHE"
+            for f in "$WIN" "$LIN" "$MAC"; do
+              aws s3 cp "$f" "$B/latest/$f" --endpoint-url "$R2_ENDPOINT" --cache-control "$NOCACHE"
+            done
+            echo "Stable -> latest.json + latest/"
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
