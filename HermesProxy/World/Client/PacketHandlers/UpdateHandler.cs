@@ -1209,6 +1209,13 @@ namespace HermesProxy.World.Client
                 }
             }
 
+            // Vanilla aura slots (UNIT_FIELD_AURA) carry no caster info, so CastUnit stays null and
+            // AuraDataInfo.Write emits the "has caster" bit as false. The modern 1.14 client reads
+            // that as "missing caster, not display-safe" and drops the aura from the buff bar. Flag
+            // it NoCaster so the client accepts the aura without caster info.
+            if (data.CastUnit == null)
+                data.Flags |= AuraFlagsModern.NoCaster;
+
             int levelsIndex = UNIT_FIELD_AURALEVELS + i / 4;
             if (updates.ContainsKey(levelsIndex))
                 data.CastLevel = (ushort)((updates[levelsIndex].UInt32Value >> ((i % 4) * 8)) & 0xFF);
@@ -1223,6 +1230,16 @@ namespace HermesProxy.World.Client
 
             if (GameData.StackableAuras.Contains(spellId))
                 data.Applications++;
+
+            // Stealth idle animation fix: vanilla encodes non-stackable toggle auras (Stealth,
+            // Shadowmeld, Prowl, etc.) with Applications=0, which vanilla clients treat as
+            // "present, not stacked". The modern 1.14 client inherits retail semantics where
+            // Applications=0 means "aura not active", so it drops the aura from the visible-auras
+            // animation gate. That leaves VisFlags.CREEP set with no active backing aura the client
+            // can find, so the stealth crouch idle animation never engages. Clamp to a minimum of 1
+            // so forwarded non-stackable auras are seen as active.
+            if (data.Applications == 0)
+                data.Applications = 1;
 
             if (GameData.SpellEffectPoints.TryGetValue(spellId, out var basePoints))
                 data.Points = basePoints;
@@ -1904,6 +1921,29 @@ namespace HermesProxy.World.Client
                     {
                         updateData.UnitData.ShapeshiftForm = (byte)((updates[UNIT_FIELD_BYTES_1].UInt32Value >> 16) & 0xFF);
                         updateData.UnitData.VisFlags = (byte)((updates[UNIT_FIELD_BYTES_1].UInt32Value >> 24) & 0xFF);
+                    }
+
+                    // Force the idle stealth-crouch. The 1.14 client plays StealthWalk (moving) from
+                    // the creep state but never selects StealthStand when idle, so pin the unit's
+                    // state animation to StealthStand (AnimationData id 120) while the creep vis flag
+                    // (0x02) is set; movement still overrides it with StealthWalk. Only clear units we
+                    // actually pinned (tracked in ForcedStealthAnimUnits) so we don't blanket-write a
+                    // state anim onto every unit in the world. NPCs release from 0 (Stand), but the
+                    // local player's own client ignores 0, so it needs the "no state animation"
+                    // sentinel (0xFFFFFFFF) instead.
+                    if (updateData.UnitData.VisFlags != null)
+                    {
+                        var forced = GetSession().GameState.ForcedStealthAnimUnits;
+                        if (((byte)updateData.UnitData.VisFlags & 0x02) != 0)
+                        {
+                            updateData.UnitData.StateAnimID = 120u;
+                            forced.Add(guid);
+                        }
+                        else if (forced.Remove(guid))
+                        {
+                            updateData.UnitData.StateAnimID =
+                                (guid == GetSession().GameState.CurrentPlayerGuid) ? 0xFFFFFFFFu : 0u;
+                        }
                     }
                 }
                 // Swimming creatures: the vanilla protocol has no AnimTier concept, so the modern

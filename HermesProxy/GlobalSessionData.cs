@@ -120,6 +120,7 @@ namespace HermesProxy
         public HashSet<WowGuid128> FlagCarrierGuids = new HashSet<WowGuid128>();
         public HashSet<WowGuid128> HoveringUnits = new HashSet<WowGuid128>(); // creatures with spline hover on; their cast visuals are stripped so the modern client keeps the hover idle anim (Sapphiron air phase)
         public HashSet<WowGuid128> KnownSwimmingMobs = new HashSet<WowGuid128>(); // creatures observed with MovementFlag.Swimming; the modern 1.14 client won't infer swimming from liquid like 1.12 did, so we synthesize AnimTier=Swim + UnitFlag.CanSwim + spline AnimTierSwim/CanSwim for them (vanilla protocol carries none), else they play walk anim underwater
+        public HashSet<WowGuid128> ForcedStealthAnimUnits = new HashSet<WowGuid128>(); // units we've pinned to the StealthStand (crouch) idle animation via UNIT_FIELD_STATE_ANIM_ID because the modern 1.14 client won't select it from the creep flag; tracked so we only clear the state anim on units we actually set it on
         public Dictionary<WowGuid64, ushort> ObjectSpawnCount = new Dictionary<WowGuid64, ushort>();
         public HashSet<WowGuid64> DespawnedGameObjects = new();
         public HashSet<WowGuid128> HunterPetGuids = new HashSet<WowGuid128>();

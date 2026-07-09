@@ -923,12 +923,12 @@ namespace HermesProxy
         {
             if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V2_0_1_6180))
             {
-                // CMaNGOS-classic does not encode effect-index bits in vanilla aura flags.
-                // It uses 0x04 (AFLAG_UNK3) as a "positive aura" marker and 0x08 (AFLAG_UNK4)
-                // as a "negative aura" marker, neither of which are effect-index bits.
-                // Default activeFlags=1 so the 1.14 client treats effect 0 as active,
-                // which is correct for virtually all vanilla auras (tracking, buffs, debuffs).
-                activeFlags = 1;
+                // Vanilla DOES encode which effect indices are active in the aura-flags byte
+                // (EffectIndex0/1/2). Read them so the 1.14 client knows which effects are live.
+                // This matters for multi-effect toggle auras like Stealth (1785), whose MOD_STEALTH
+                // is effect index 1 — without its bit set the client sees the stealth effect as
+                // inactive and never engages the crouch idle animation.
+                activeFlags = 0;
                 newFlags = AuraFlagsModern.None;
 
                 if (slot >= 32)
@@ -938,6 +938,18 @@ namespace HermesProxy
 
                 if (oldFlags.HasAnyFlag(AuraFlagsVanilla.Cancelable))
                     newFlags |= AuraFlagsModern.Cancelable;
+
+                if (oldFlags.HasAnyFlag(AuraFlagsVanilla.EffectIndex0))
+                    activeFlags |= 1;
+                if (oldFlags.HasAnyFlag(AuraFlagsVanilla.EffectIndex1))
+                    activeFlags |= 2;
+                if (oldFlags.HasAnyFlag(AuraFlagsVanilla.EffectIndex2))
+                    activeFlags |= 4;
+
+                // Fallback: some toggle auras arrive with no effect-index bits set. Keep effect 0
+                // active so the client still recognises the aura as live.
+                if (activeFlags == 0)
+                    activeFlags = 1;
             }
             else if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V3_0_2_9056))
             {
