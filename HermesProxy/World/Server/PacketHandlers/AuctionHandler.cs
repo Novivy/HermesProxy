@@ -43,6 +43,39 @@ namespace HermesProxy.World.Server
             var guid = !auction.Auctioneer.IsEmpty()
                 ? auction.Auctioneer
                 : GetSession().GameState.CurrentInteractedWithNPC;
+
+            // On vanilla the legacy server pages the owned list 50 at a time and the modern client
+            // never asks for the next page, so arm a proxy-driven walk that combines every page into
+            // one result (see AuctionOwnerWalk* in GameSessionData). Only for a fresh request (Offset
+            // == 0); an addon doing explicit per-page fetches (Offset != 0) passes through unchanged.
+            if (LegacyVersion.ExpansionVersion <= 1 && auction.Offset == 0)
+            {
+                var gs = GetSession().GameState;
+                bool startWalk;
+                lock (gs.AuctionOwnerWalkLock)
+                {
+                    // If a walk is already running (e.g. the AH-open request from HandleAuctionHello),
+                    // do NOT restart it and do NOT forward this duplicate request -- the running walk
+                    // will produce the combined result that satisfies this client request too.
+                    startWalk = !gs.AuctionOwnerWalkInProgress;
+                    if (startWalk)
+                    {
+                        gs.AuctionOwnerWalkInProgress = true;
+                        gs.AuctionOwnerWalkAuctioneer = guid;
+                        gs.AuctionOwnerWalkAccumulator.Clear();
+                        gs.AuctionOwnerWalkLastFinalizedTickMs = 0;
+                    }
+                }
+                if (startWalk)
+                {
+                    WorldPacket startPkt = new WorldPacket(Opcode.CMSG_AUCTION_LIST_OWNED_ITEMS);
+                    startPkt.WriteGuid(guid.To64());
+                    startPkt.WriteUInt32(0);
+                    SendPacketToServer(startPkt);
+                }
+                return;
+            }
+
             WorldPacket packet = new WorldPacket(Opcode.CMSG_AUCTION_LIST_OWNED_ITEMS);
             packet.WriteGuid(guid.To64());
             packet.WriteUInt32(auction.Offset);

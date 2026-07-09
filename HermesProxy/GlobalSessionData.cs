@@ -133,6 +133,20 @@ namespace HermesProxy
         public HashSet<uint> RequestedItemHotfixes = new HashSet<uint>();
         public HashSet<uint> RequestedItemSparseHotfixes = new HashSet<uint>();
 
+        // Legacy servers page the owned-auctions list 50 at a time (MAX_AUCTION_ITEMS_CLIENT_UI_PAGE).
+        // The 1.12 client has native Next/Prev page buttons, but the modern client's Auctions tab expects
+        // the whole list in one result and never requests further pages, so everything past the first 50
+        // is lost. We drive the paging ourselves ("walk"): once armed, keep re-requesting the next page
+        // from the legacy server and accumulate here until the full list is gathered, then forward it all
+        // at once. The modern client REPLACES its list on each result, so a stray partial page arriving
+        // after the combined one would overwrite it with just 50 items -- LastFinalizedTickMs lets us
+        // suppress such late/duplicate pages for a short window. Guarded by the lock across both threads.
+        public readonly object AuctionOwnerWalkLock = new object();
+        public bool AuctionOwnerWalkInProgress;
+        public List<AuctionItem> AuctionOwnerWalkAccumulator = new();
+        public WowGuid128 AuctionOwnerWalkAuctioneer;
+        public long AuctionOwnerWalkLastFinalizedTickMs;
+
         // Per-observed-unit timers that synthesize SMSG_CANCEL_AUTO_REPEAT when a
         // remote hunter stops auto-shooting. The 1.12 server only sends this packet
         // body-less to the caster's own session, so observers' proxy sessions never
