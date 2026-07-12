@@ -11,6 +11,16 @@ namespace HermesProxy.World.Client
 {
     public partial class WorldClient
     {
+        // Nature's Grasp (druid talent 761) is a 1-point talent whose spell auto-upgrades with the
+        // player's Entangling Roots rank: 16689 (r1) -> 16810 -> 16811 -> 16812 -> 16813 -> 17329,
+        // each upgrade superceding the previous rank. The modern client marks a talent as taken by
+        // matching a KNOWN spell against the talent's SpellRank[] list, which contains only rank 1
+        // (16689). Once NG has upgraded past rank 1 the client no longer knows 16689, so it shows the
+        // talent as un-taken (with a wrong pip count if higher ranks are listed). Keeping rank 1 in
+        // the client's known-spell set lets the 1-rank talent record match -> correct 1/1 taken.
+        private const uint NaturesGraspRank1 = 16689;
+        private static readonly uint[] NaturesGraspUpgradedRanks = { 16810, 16811, 16812, 16813, 17329 };
+
         // Handlers for SMSG opcodes coming the legacy world server
         [PacketHandler(Opcode.SMSG_SEND_KNOWN_SPELLS)]
         void HandleSendKnownSpells(WorldPacket packet)
@@ -28,6 +38,12 @@ namespace HermesProxy.World.Client
                 spells.KnownSpells.Add(spellId);
                 packet.ReadInt16();
             }
+
+            // Keep Nature's Grasp rank 1 known so its talent stays marked taken (see class comment).
+            if (NaturesGraspUpgradedRanks.Any(r => spells.KnownSpells.Contains(r)) &&
+                !spells.KnownSpells.Contains(NaturesGraspRank1))
+                spells.KnownSpells.Add(NaturesGraspRank1);
+
             SendPacketToClient(spells);
 
             // The legacy server only sends SMSG_SET_PROFICIENCY when a new proficiency is
@@ -102,6 +118,17 @@ namespace HermesProxy.World.Client
                 supercededId = packet.ReadUInt16();
                 spellId = packet.ReadUInt16();
             }
+            // When Nature's Grasp auto-upgrades (16689 -> 16810) the legacy server supercedes rank 1;
+            // forward it as a plain learn of the new rank so the client keeps 16689 known and the
+            // talent stays marked taken (see class comment).
+            if (supercededId == NaturesGraspRank1)
+            {
+                LearnedSpells learnedInstead = new LearnedSpells();
+                learnedInstead.Spells.Add(spellId);
+                SendPacketToClient(learnedInstead);
+                return;
+            }
+
             spells.SpellID.Add(spellId);
             spells.Superceded.Add(supercededId);
             SendPacketToClient(spells);

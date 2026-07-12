@@ -1790,6 +1790,7 @@ namespace HermesProxy.World
         public const uint HotfixCreatureDisplayInfoOptionBegin = 290000;
         public const uint HotfixSpellReagentsBegin = 300000;
         public const uint HotfixSpellVisualEffectNameBegin = 310000;
+        public const uint HotfixTalentBegin = 320000;
         public static Dictionary<uint, HotfixRecord> Hotfixes = new Dictionary<uint, HotfixRecord>();
         public static void LoadHotfixes()
         {
@@ -1813,8 +1814,83 @@ namespace HermesProxy.World
             LoadCreatureDisplayInfoExtraHotfixes();
             LoadCreatureDisplayInfoOptionHotfixes();
             LoadSpellReagentsHotfixes();
+            LoadTalentHotfixes();
         }
-        
+
+        // Removes the Entangling Roots (spell 339) prerequisite from the Nature's Grasp talent
+        // (Talent 761) on the modern client only. The 1.14 client re-validates a talent's
+        // RequiredSpellID on login and wrongly zeroes an already-learned Nature's Grasp even
+        // though rank 1 of Entangling Roots is known -- unlike the 1.12 client, which handles it
+        // fine. Blanking RequiredSpellID here stops that false invalidation. The gameplay gate
+        // still holds: the 1.12 server enforces the same prerequisite in LearnTalent from its own
+        // Talent.dbc, so a player still cannot learn Nature's Grasp without Entangling Roots.
+        // Build 1.14.2 layout (WoWDBDefs 98F23E5A): ID is $noninline$ -> carried by RecordId,
+        // NOT written into the record content.
+        public static void LoadTalentHotfixes()
+        {
+            var path = Path.Combine("CSV", "Hotfix", $"Talent{ModernVersion.ExpansionVersion}.csv");
+            if (!File.Exists(path))
+                return;
+            using (TextFieldParser csvParser = new TextFieldParser(path))
+            {
+                csvParser.CommentTokens = new string[] { "#" };
+                csvParser.SetDelimiters(new string[] { "," });
+                csvParser.HasFieldsEnclosedInQuotes = false;
+
+                // Skip the row with the column names
+                csvParser.ReadLine();
+
+                uint counter = 0;
+                while (!csvParser.EndOfData)
+                {
+                    counter++;
+
+                    string[] fields = csvParser.ReadFields();
+
+                    uint id = UInt32.Parse(fields[0]);
+                    string description = fields[1];
+                    byte tierId = Byte.Parse(fields[2]);
+                    byte flags = Byte.Parse(fields[3]);
+                    byte columnIndex = Byte.Parse(fields[4]);
+                    ushort tabId = UInt16.Parse(fields[5]);
+                    byte classId = Byte.Parse(fields[6]);
+                    ushort specId = UInt16.Parse(fields[7]);
+                    uint spellId = UInt32.Parse(fields[8]);
+                    uint overridesSpellId = UInt32.Parse(fields[9]);
+                    uint requiredSpellId = UInt32.Parse(fields[10]);
+                    byte categoryMask0 = Byte.Parse(fields[11]);
+                    byte categoryMask1 = Byte.Parse(fields[12]);
+
+                    HotfixRecord record = new HotfixRecord();
+                    record.TableHash = DB2Hash.Talent;
+                    record.HotfixId = HotfixTalentBegin + counter;
+                    record.UniqueId = record.HotfixId;
+                    record.RecordId = id;
+                    record.Status = HotfixStatus.Valid;
+                    // ID is non-inline (in the id-block), so it is NOT written into the record content.
+                    record.HotfixContent.WriteCString(description); // Description_lang (locstring)
+                    record.HotfixContent.WriteUInt8(tierId);
+                    record.HotfixContent.WriteUInt8(flags);
+                    record.HotfixContent.WriteUInt8(columnIndex);
+                    record.HotfixContent.WriteUInt16(tabId);
+                    record.HotfixContent.WriteUInt8(classId);
+                    record.HotfixContent.WriteUInt16(specId);
+                    record.HotfixContent.WriteUInt32(spellId);
+                    record.HotfixContent.WriteUInt32(overridesSpellId);
+                    record.HotfixContent.WriteUInt32(requiredSpellId);
+                    record.HotfixContent.WriteUInt8(categoryMask0);
+                    record.HotfixContent.WriteUInt8(categoryMask1);
+                    for (int i = 13; i <= 21; i++)                  // SpellRank[9]
+                        record.HotfixContent.WriteUInt32(UInt32.Parse(fields[i]));
+                    for (int i = 22; i <= 24; i++)                  // PrereqTalent[3]
+                        record.HotfixContent.WriteUInt32(UInt32.Parse(fields[i]));
+                    for (int i = 25; i <= 27; i++)                  // PrereqRank[3]
+                        record.HotfixContent.WriteUInt32(UInt32.Parse(fields[i]));
+                    Hotfixes.Add(record.HotfixId, record);
+                }
+            }
+        }
+
         // Bumps the scale of ground spell visuals on the modern client. Used to enlarge Kel'Thuzad's
         // Shadow Fissure telegraph (SpellVisualEffectName 307 = the "Dark Ritual" ground rune, model
         // darkritual_precast_base.m2). The data is identical to 1.12, but Blizzard's modern .m2 renders
