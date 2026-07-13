@@ -140,8 +140,8 @@ namespace HermesProxy.World.Server
             if (Settings.ServerSpellDelay > 0)
                 Thread.Sleep(Settings.ServerSpellDelay);
 
-            if (GameData.NextMeleeSpells.Contains(cast.Cast.SpellID) ||
-                GameData.AutoRepeatSpells.Contains(cast.Cast.SpellID))
+            bool isAutoRepeat = GameData.AutoRepeatSpells.Contains(cast.Cast.SpellID);
+            if (GameData.NextMeleeSpells.Contains(cast.Cast.SpellID) || isAutoRepeat)
             {
                 ClientCastRequest castRequest = new ClientCastRequest();
                 castRequest.Timestamp = Environment.TickCount;
@@ -150,9 +150,11 @@ namespace HermesProxy.World.Server
                 castRequest.ClientGUID = cast.Cast.CastID;
 
                 bool alreadyHasSpecial;
+                ClientCastRequest inProgressNormal;
                 lock (GetSession().GameState.SpellCastLock)
                 {
                     alreadyHasSpecial = GetSession().GameState.CurrentClientSpecialCast != null;
+                    inProgressNormal = GetSession().GameState.CurrentClientNormalCast;
                     if (alreadyHasSpecial)
                     {
                         castRequest.ServerGUID = WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId, cast.Cast.SpellID, 10000 + cast.Cast.CastID.GetCounter());
@@ -172,6 +174,20 @@ namespace HermesProxy.World.Server
                 prepare.ClientCastID = cast.Cast.CastID;
                 prepare.ServerCastID = castRequest.ServerGUID;
                 SendPacket(prepare);
+
+                // An auto-repeat spell (wand Shoot / Auto Shot) must not interrupt an
+                // in-progress spell cast. If a normal cast is currently casting, defer
+                // forwarding the auto-repeat to the legacy server until that cast finishes
+                // (flushed on SMSG_SPELL_GO / SMSG_SPELL_FAILED). Otherwise the server treats
+                // "start auto-repeat" as interrupting the active cast. The button is already
+                // lit via the SpellPrepare above, so this reads as a queued shot to the player.
+                if (isAutoRepeat && inProgressNormal != null && inProgressNormal.HasStarted)
+                {
+                    castRequest.PendingLegacyPacket = BuildLegacyCastPacket(cast);
+                    lock (GetSession().GameState.SpellCastLock)
+                        GetSession().GameState.PendingSpecialCast = castRequest;
+                    return;
+                }
             }
             else
             {
@@ -450,6 +466,19 @@ namespace HermesProxy.World.Server
             // or spells will bug out and glow if spammed.
             if (Settings.ServerSpellDelay > 0)
                 Thread.Sleep(Settings.ServerSpellDelay);
+
+            // If the auto-repeat was deferred behind an in-progress cast and never reached the
+            // server, toggling it off here must drop the deferred shot so it doesn't fire once
+            // that cast completes.
+            lock (GetSession().GameState.SpellCastLock)
+            {
+                if (GetSession().GameState.PendingSpecialCast != null)
+                {
+                    if (ReferenceEquals(GetSession().GameState.CurrentClientSpecialCast, GetSession().GameState.PendingSpecialCast))
+                        GetSession().GameState.CurrentClientSpecialCast = null;
+                    GetSession().GameState.PendingSpecialCast = null;
+                }
+            }
 
             WorldPacket packet = new WorldPacket(Opcode.CMSG_CANCEL_AUTO_REPEAT_SPELL);
             SendPacketToServer(packet);

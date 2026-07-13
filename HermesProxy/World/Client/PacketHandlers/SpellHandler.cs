@@ -242,15 +242,26 @@ namespace HermesProxy.World.Client
                 SendPacketToClient(failed);
 
                 List<ClientCastRequest> toFail;
+                WorldPacket pendingSpecialPacket = null;
                 lock (GetSession().GameState.SpellCastLock)
                 {
                     if (ReferenceEquals(GetSession().GameState.CurrentClientNormalCast, failedNormal))
                         GetSession().GameState.CurrentClientNormalCast = null;
                     toFail = GetSession().GameState.PendingClientCasts.ToList();
                     GetSession().GameState.PendingClientCasts.Clear();
+                    if (GetSession().GameState.PendingSpecialCast != null)
+                    {
+                        // The cast that was blocking an auto-repeat (wand/shot) failed or was
+                        // interrupted, so the cast slot is free - fire the deferred shot now
+                        // rather than leaving it stuck pending forever.
+                        pendingSpecialPacket = GetSession().GameState.PendingSpecialCast.PendingLegacyPacket;
+                        GetSession().GameState.PendingSpecialCast = null;
+                    }
                 }
                 foreach (var pending in toFail)
                     GetSession().InstanceSocket.SendCastRequestFailed(pending, false);
+                if (pendingSpecialPacket != null)
+                    SendPacketToServer(pendingSpecialPacket);
             }
         }
 
@@ -373,6 +384,7 @@ namespace HermesProxy.World.Client
             uint spellVisual;
             List<ClientCastRequest> toFail = null;
             List<ClientCastRequest> toFailPet = null;
+            WorldPacket pendingSpecialPacket = null;
             lock (GetSession().GameState.SpellCastLock)
             {
                 var normalCast = GetSession().GameState.CurrentClientNormalCast;
@@ -385,6 +397,14 @@ namespace HermesProxy.World.Client
                     GetSession().GameState.CurrentClientNormalCast = null;
                     toFail = GetSession().GameState.PendingClientCasts.ToList();
                     GetSession().GameState.PendingClientCasts.Clear();
+                    if (GetSession().GameState.PendingSpecialCast != null)
+                    {
+                        // The cast that was blocking an auto-repeat (wand/shot) was interrupted, so
+                        // the cast slot is free - fire the deferred shot now rather than leaving it
+                        // stuck pending forever (which would also block all future auto-repeat casts).
+                        pendingSpecialPacket = GetSession().GameState.PendingSpecialCast.PendingLegacyPacket;
+                        GetSession().GameState.PendingSpecialCast = null;
+                    }
                 }
                 else if (GetSession().GameState.CurrentPetGuid == casterUnit &&
                          petCast != null && petCast.SpellId == spellId)
@@ -407,6 +427,8 @@ namespace HermesProxy.World.Client
             if (toFailPet != null)
                 foreach (var pending in toFailPet)
                     GetSession().InstanceSocket.SendCastRequestFailed(pending, true);
+            if (pendingSpecialPacket != null)
+                SendPacketToServer(pendingSpecialPacket);
 
             SpellFailure spell = new SpellFailure();
             spell.CasterUnit = casterUnit;
@@ -572,6 +594,7 @@ namespace HermesProxy.World.Client
             // (hovering casters keep their GO visuals: the release anim does not ground the
             // model — observed on Sapphiron — and stripping it would lose missile visuals)
             WorldPacket pendingGoPacket = null;
+            WorldPacket pendingSpecialPacket = null;
             lock (GetSession().GameState.SpellCastLock)
             {
                 if (GetSession().GameState.CurrentPlayerGuid == spell.Cast.CasterUnit &&
@@ -588,6 +611,13 @@ namespace HermesProxy.World.Client
                         GetSession().GameState.PendingClientCasts.RemoveAt(0);
                         GetSession().GameState.CurrentClientNormalCast = queued;
                         pendingGoPacket = queued.PendingLegacyPacket;
+                    }
+                    else if (GetSession().GameState.PendingSpecialCast != null)
+                    {
+                        // The cast that was blocking an auto-repeat (wand/shot) just finished and
+                        // no further normal cast was queued behind it, so fire the deferred shot now.
+                        pendingSpecialPacket = GetSession().GameState.PendingSpecialCast.PendingLegacyPacket;
+                        GetSession().GameState.PendingSpecialCast = null;
                     }
                 }
                 else if (GetSession().GameState.CurrentPlayerGuid == spell.Cast.CasterUnit &&
@@ -609,6 +639,8 @@ namespace HermesProxy.World.Client
             }
             if (pendingGoPacket != null)
                 SendPacketToServer(pendingGoPacket);
+            if (pendingSpecialPacket != null)
+                SendPacketToServer(pendingSpecialPacket);
             if (!spell.Cast.CasterUnit.IsEmpty() && GameData.AuraSpells.Contains((uint)spell.Cast.SpellID))
             {
                 uint spellId = (uint)spell.Cast.SpellID;

@@ -92,6 +92,7 @@ namespace HermesProxy
         public uint[] CurrentArenaTeamIds = new uint[3];
         public ClientCastRequest CurrentClientNormalCast;  // regular spell casts
         public ClientCastRequest CurrentClientSpecialCast; // next melee or auto repeat spells
+        public ClientCastRequest PendingSpecialCast;       // auto repeat (wand/shot) deferred until an in-progress normal cast finishes
         public ClientCastRequest CurrentClientPetCast;
         public List<ClientCastRequest> PendingClientCasts = new List<ClientCastRequest>();
         public List<ClientCastRequest> PendingClientPetCasts = new List<ClientCastRequest>();
