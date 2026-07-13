@@ -28,6 +28,7 @@ namespace HermesProxy.World.Client
             GetSession().GameState.LastAuraCasterOnTarget.Remove(guid);
             GetSession().GameState.HoveringUnits.Remove(guid);
             GetSession().GameState.KnownSwimmingMobs.Remove(guid);
+            GetSession().GameState.ForcedStealthAnimUnits.Remove(guid);
 
             UpdateObject updateObject = new UpdateObject(GetSession().GameState);
             updateObject.DestroyedGuids.Add(guid);
@@ -315,6 +316,15 @@ namespace HermesProxy.World.Client
                 GetSession().GameState.ObjectCacheModern.Remove(guid);
                 GetSession().GameState.ObjectCacheMutex.ReleaseMutex();
                 GetSession().GameState.LastAuraCasterOnTarget.Remove(guid);
+                // Mirror HandleDestroyObject: an out-of-range object leaves the client's view just
+                // like a destroyed one, so drop its synthesized-state registry entries. Otherwise a
+                // guid stuck in KnownSwimmingMobs makes the NEXT create block bake DisableGravity
+                // into its movement info (ApplySwimOverrideIfNeeded), and the 1.14 client renders the
+                // (land) creature lifted ~2yd off the ground with its idle pose. Clearing here makes
+                // re-entry behave exactly like the first login create (seeded fresh from this packet).
+                GetSession().GameState.HoveringUnits.Remove(guid);
+                GetSession().GameState.KnownSwimmingMobs.Remove(guid);
+                GetSession().GameState.ForcedStealthAnimUnits.Remove(guid);
 
                 // If the pet is too far away, sends a SMSG_UPDATE_OBJECT protocol
                 if (GetSession().GameState.CurrentPetGuid == guid)
@@ -1958,7 +1968,16 @@ namespace HermesProxy.World.Client
                     // embedded in the CreateObject block (updateData.CreateData.MoveSpline), NOT via a
                     // standalone SMSG_ON_MONSTER_MOVE, so HandleMonsterMove never touches it and it
                     // walks until the server issues its next move. Apply the same swim synthesis here.
-                    if (updateData.CreateData != null && updateData.CreateData.MoveSpline != null)
+                    //
+                    // BUT only strip ground-snap for a creature that is ACTUALLY in the water right now
+                    // (create MovementInfo carries MOVEFLAG_SWIMMING, which cmangos sets for units spawned
+                    // in liquid). A water-CAPABLE creature standing on dry land at spawn must keep
+                    // SmoothGroundPath: without it the 1.14 client renders it hovering off the ground for
+                    // ~1-2s until the first real MonsterMove (whose explicit ground-level points re-ground
+                    // it). AnimTier=Swim above is harmless on land (the client picks walk-vs-swim by liquid).
+                    bool swimmingNow = updateData.CreateData?.MoveInfo != null &&
+                        ((MovementFlagModern)updateData.CreateData.MoveInfo.Flags).HasAnyFlag(MovementFlagModern.Swimming);
+                    if (swimmingNow && updateData.CreateData.MoveSpline != null)
                     {
                         updateData.CreateData.MoveSpline.SplineFlags &= ~(SplineFlagModern.SmoothGroundPath | SplineFlagModern.Falling | SplineFlagModern.FallingSlow | SplineFlagModern.Flying);
                         updateData.CreateData.MoveSpline.SplineFlags |= SplineFlagModern.AnimTierSwim | SplineFlagModern.CanSwim;

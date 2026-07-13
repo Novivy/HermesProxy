@@ -215,6 +215,19 @@ namespace HermesProxy.World.Client
             {
                 GetSession().GameState.IsWaitingForNewWorld = false;
                 GetSession().GameState.IsWaitingForWorldPortAck = true;
+
+                // The client discards and rebuilds its world on this teleport. The legacy server
+                // sends no per-object SMSG_DESTROY_OBJECT / out-of-range block for the old map's
+                // objects, so our per-guid synthesized-state registries would otherwise keep stale
+                // entries. On return to the old map the same-guid creature is re-created with stale
+                // membership, which (e.g. KnownSwimmingMobs) bakes DisableGravity into its create
+                // block and the 1.14 client renders it hovering ~2yd off the ground. Clear them; the
+                // fresh creates on the new map re-seed whatever is actually true there. (Object
+                // caches are left alone: a create block rebuilds its cache entry via ObjectUpdateBuilder.)
+                GetSession().GameState.HoveringUnits.Clear();
+                GetSession().GameState.KnownSwimmingMobs.Clear();
+                GetSession().GameState.ForcedStealthAnimUnits.Clear();
+
                 SendPacketToClient(teleport);
                 if (teleport.MapID > 1)
                 {
