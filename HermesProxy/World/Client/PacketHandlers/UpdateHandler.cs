@@ -1297,6 +1297,10 @@ namespace HermesProxy.World.Client
         {
             if (objectType == ObjectType.Player || objectType == ObjectType.ActivePlayer)
             {
+                // Resume an auto-repeat (wand/shot) that a stun interrupted, once the stun fades.
+                if (guid == GetSession().GameState.CurrentPlayerGuid)
+                    UpdateWandStunResume(guid);
+
                 int UNIT_FIELD_NATIVEDISPLAYID = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_NATIVEDISPLAYID);
                 int UNIT_FIELD_MOUNTDISPLAYID = LegacyVersion.GetUpdateField(UnitField.UNIT_FIELD_MOUNTDISPLAYID);
                 int OBJECT_FIELD_SCALE_X = LegacyVersion.GetUpdateField(ObjectField.OBJECT_FIELD_SCALE_X);

@@ -163,6 +163,21 @@ namespace HermesProxy.World.Server
                     {
                         castRequest.ServerGUID = WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId, cast.Cast.SpellID, cast.Cast.SpellID + GetSession().GameState.CurrentPlayerGuid.GetCounter());
                         GetSession().GameState.CurrentClientSpecialCast = castRequest;
+                        if (isAutoRepeat)
+                        {
+                            // Track the toggled-on auto-repeat separately: CurrentClientSpecialCast is
+                            // cleared on the first SMSG_SPELL_GO tick, but we need the wand's identity to
+                            // survive continuous firing so a mid-firing stun can be resumed. (Next-melee
+                            // specials are one-shot and never resumed, so they leave this untouched.)
+                            GetSession().GameState.ActiveAutoRepeatCast = castRequest;
+                            // A fresh press supersedes any wand parked for a stun-resume, so drop that stash.
+                            GetSession().GameState.WandToResumeAfterStun = null;
+                            GetSession().GameState.RecentAutoRepeatCancel = null;
+                            // and any held cancel from a just-stopped wand, so it can't cancel this one.
+                            GetSession().GameState.PendingWandCancelCts?.Cancel();
+                            GetSession().GameState.PendingWandCancelCts?.Dispose();
+                            GetSession().GameState.PendingWandCancelCts = null;
+                        }
                     }
                 }
                 if (alreadyHasSpecial)
@@ -175,6 +190,10 @@ namespace HermesProxy.World.Server
                 prepare.ServerCastID = castRequest.ServerGUID;
                 SendPacket(prepare);
 
+                // Retain the legacy CMSG so the wand can be re-fired later without the original
+                // client packet (used by both the stun-resume and the deferred-cast paths below).
+                castRequest.PendingLegacyPacket = BuildLegacyCastPacket(cast);
+
                 // An auto-repeat spell (wand Shoot / Auto Shot) must not interrupt an
                 // in-progress spell cast. If a normal cast is currently casting, defer
                 // forwarding the auto-repeat to the legacy server until that cast finishes
@@ -183,7 +202,6 @@ namespace HermesProxy.World.Server
                 // lit via the SpellPrepare above, so this reads as a queued shot to the player.
                 if (isAutoRepeat && inProgressNormal != null && inProgressNormal.HasStarted)
                 {
-                    castRequest.PendingLegacyPacket = BuildLegacyCastPacket(cast);
                     lock (GetSession().GameState.SpellCastLock)
                         GetSession().GameState.PendingSpecialCast = castRequest;
                     return;
@@ -478,6 +496,14 @@ namespace HermesProxy.World.Server
                         GetSession().GameState.CurrentClientSpecialCast = null;
                     GetSession().GameState.PendingSpecialCast = null;
                 }
+                // The player deliberately turned the wand off, so cancel any pending stun-resume.
+                GetSession().GameState.ActiveAutoRepeatCast = null;
+                GetSession().GameState.WandToResumeAfterStun = null;
+                GetSession().GameState.RecentAutoRepeatCancel = null;
+                // The client already un-lit the button on its own key press, so drop any held cancel.
+                GetSession().GameState.PendingWandCancelCts?.Cancel();
+                GetSession().GameState.PendingWandCancelCts?.Dispose();
+                GetSession().GameState.PendingWandCancelCts = null;
             }
 
             WorldPacket packet = new WorldPacket(Opcode.CMSG_CANCEL_AUTO_REPEAT_SPELL);

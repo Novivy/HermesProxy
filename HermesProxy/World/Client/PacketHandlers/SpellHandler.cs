@@ -931,12 +931,29 @@ namespace HermesProxy.World.Client
             if (Settings.ClientSpellDelay > 0)
                 Thread.Sleep(Settings.ClientSpellDelay);
 
+            bool wasActiveWand = false;
             lock (GetSession().GameState.SpellCastLock)
             {
+                // Clear the first-tick translation slot if the wand was cancelled before its first shot.
                 if (GetSession().GameState.CurrentClientSpecialCast != null &&
                     GameData.AutoRepeatSpells.Contains(GetSession().GameState.CurrentClientSpecialCast.SpellId))
                 {
                     GetSession().GameState.CurrentClientSpecialCast = null;
+                }
+
+                // Remember the toggled-on wand (ActiveAutoRepeatCast survives continuous firing, so this
+                // fires even when the stun lands mid-wanding). cmangos sends SMSG_CANCEL_AUTO_REPEAT right
+                // before it sets UNIT_FLAG_STUNNED, so if the player's stun flag turns on within a short
+                // window we know the wand was stopped by a stun and re-fire it when the stun fades (see
+                // UpdateWandStunResume). A non-stun cancel (moving, target change, toggle) is never
+                // followed by the stun flag, so this stash simply expires unused.
+                var activeWand = GetSession().GameState.ActiveAutoRepeatCast;
+                if (activeWand != null)
+                {
+                    GetSession().GameState.RecentAutoRepeatCancel = activeWand;
+                    GetSession().GameState.RecentAutoRepeatCancelTime = Environment.TickCount;
+                    GetSession().GameState.ActiveAutoRepeatCast = null;
+                    wasActiveWand = true;
                 }
             }
 
@@ -945,7 +962,116 @@ namespace HermesProxy.World.Client
                 cancel.Guid = packet.ReadPackedGuid().To128(GetSession().GameState);
             else
                 cancel.Guid = GetSession().GameState.CurrentPlayerGuid;
-            SendPacketToClient(cancel);
+
+            // If this cancel stopped the player's own wand, don't tell the client yet: the very next
+            // packet may carry the stun flag that caused it, in which case we suppress the cancel so the
+            // client stays in auto-repeat mode and the Shoot button stays lit through stun + resume. If
+            // no stun follows within the hold window, the cancel is forwarded normally (button un-lights).
+            if (wasActiveWand)
+                ScheduleWandCancelToClient(cancel);
+            else
+                SendPacketToClient(cancel);
+        }
+
+        // Hold window for a wand cancel before it is forwarded to the client. cmangos emits the cancel
+        // and the UNIT_FLAG_STUNNED update in the same end-of-tick flush, so the stun flag is only a few
+        // ms behind; 150ms covers jitter while staying imperceptible on an ordinary move/target cancel.
+        private const int WandCancelHoldMs = 150;
+
+        private void ScheduleWandCancelToClient(CancelAutoRepeat cancel)
+        {
+            var gameState = GetSession().GameState;
+            var newCts = new System.Threading.CancellationTokenSource();
+            lock (gameState.SpellCastLock)
+            {
+                gameState.PendingWandCancelCts?.Cancel();
+                gameState.PendingWandCancelCts?.Dispose();
+                gameState.PendingWandCancelCts = newCts;
+            }
+
+            var token = newCts.Token;
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    await System.Threading.Tasks.Task.Delay(WandCancelHoldMs, token);
+                }
+                catch (System.OperationCanceledException)
+                {
+                    return; // suppressed (stun) or superseded
+                }
+
+                lock (gameState.SpellCastLock)
+                {
+                    if (gameState.PendingWandCancelCts != newCts)
+                        return; // superseded
+                    gameState.PendingWandCancelCts = null;
+                }
+                newCts.Dispose();
+
+                // No stun arrived: this was an ordinary cancel, so let the client stop the wand.
+                SendPacketToClient(cancel);
+            });
+        }
+
+        // How long after a wand cancel the stun flag may arrive and still count as the same event.
+        // cmangos queues the cancel and the UNIT_FLAG_STUNNED update into the same end-of-tick flush
+        // (cancel first), so the client reads them back-to-back and the real gap is sub-millisecond.
+        // 1s comfortably covers tick/network jitter while keeping the false-positive window (a move-off
+        // cancel followed by an unrelated stun) small.
+        private const int WandStunResumeWindowMs = 1000;
+
+        // Driven from the player's UNIT_FIELD_FLAGS updates (see UpdateHandler.AfterStoreObjectUpdateHook).
+        // A stun interrupts an active wand on the legacy server without ever resuming it; this restores
+        // the pre-stun behavior by re-firing the wand once the stun fades.
+        void UpdateWandStunResume(WowGuid128 playerGuid)
+        {
+            uint flags = GetSession().GameState.GetLegacyFieldValueUInt32(playerGuid, UnitField.UNIT_FIELD_FLAGS);
+            bool nowStunned = (flags & (uint)UnitFlagsVanilla.Stunned) != 0;
+            if (nowStunned == GetSession().GameState.PlayerStunnedForWand)
+                return;
+            GetSession().GameState.PlayerStunnedForWand = nowStunned;
+
+            if (nowStunned)
+            {
+                // Stun just landed: if a wand was cancelled moments ago, it was this stun that stopped it.
+                lock (GetSession().GameState.SpellCastLock)
+                {
+                    var cancelledWand = GetSession().GameState.RecentAutoRepeatCancel;
+                    if (cancelledWand != null &&
+                        Environment.TickCount - GetSession().GameState.RecentAutoRepeatCancelTime <= WandStunResumeWindowMs)
+                    {
+                        GetSession().GameState.WandToResumeAfterStun = cancelledWand;
+                        // Suppress the held cancel so the client never leaves auto-repeat mode: the Shoot
+                        // button stays lit through the stun and the resumed volley.
+                        GetSession().GameState.PendingWandCancelCts?.Cancel();
+                        GetSession().GameState.PendingWandCancelCts?.Dispose();
+                        GetSession().GameState.PendingWandCancelCts = null;
+                    }
+                    GetSession().GameState.RecentAutoRepeatCancel = null;
+                }
+                return;
+            }
+
+            // Stun faded: re-fire the wand it interrupted.
+            ClientCastRequest resume;
+            lock (GetSession().GameState.SpellCastLock)
+            {
+                resume = GetSession().GameState.WandToResumeAfterStun;
+                GetSession().GameState.WandToResumeAfterStun = null;
+                if (resume != null)
+                    GetSession().GameState.ActiveAutoRepeatCast = resume; // so a further stun during the resumed firing re-suspends it
+            }
+            if (resume == null)
+                return;
+
+            // The client stayed in auto-repeat mode (the stun cancel was suppressed), so from its view the
+            // wand never stopped. Just restart the server-side loop; the resumed SMSG_SPELL_GO ticks flow
+            // through as ordinary continuation shots (raw cast id, no SpellPrepare) - exactly like ticks
+            // during uninterrupted wanding. Sending a SpellPrepare / translating the first tick here would
+            // read as a discrete one-shot cast and drop the button glow.
+            if (resume.PendingLegacyPacket != null)
+                SendPacketToServer(resume.PendingLegacyPacket);
         }
 
         [PacketHandler(Opcode.SMSG_SPELL_COOLDOWN)]

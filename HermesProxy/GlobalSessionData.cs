@@ -93,6 +93,16 @@ namespace HermesProxy
         public ClientCastRequest CurrentClientNormalCast;  // regular spell casts
         public ClientCastRequest CurrentClientSpecialCast; // next melee or auto repeat spells
         public ClientCastRequest PendingSpecialCast;       // auto repeat (wand/shot) deferred until an in-progress normal cast finishes
+        // Wand/auto-repeat resume across a stun: cmangos interrupts the wand (SMSG_CANCEL_AUTO_REPEAT)
+        // then sets UNIT_FLAG_STUNNED, and never resumes it. We stash the cancelled wand, confirm the
+        // stun via the flag, and re-fire it when the stun fades. Touched by the WorldClient thread;
+        // the stash fields are read/written under SpellCastLock (server thread clears them too).
+        public bool PlayerStunnedForWand;                  // last-seen UNIT_FLAG_STUNNED state of the player
+        public ClientCastRequest ActiveAutoRepeatCast;     // the auto-repeat currently toggled on (persists through firing, unlike CurrentClientSpecialCast which clears on the first tick)
+        public ClientCastRequest RecentAutoRepeatCancel;   // wand just cancelled by the server (candidate for stun-resume)
+        public long RecentAutoRepeatCancelTime;            // Environment.TickCount when it was cancelled
+        public ClientCastRequest WandToResumeAfterStun;    // confirmed stun-suspended wand, re-fired on stun end
+        public System.Threading.CancellationTokenSource PendingWandCancelCts; // held SMSG_CANCEL_AUTO_REPEAT to the client, suppressed if the cancel turns out to be a stun (keeps the Shoot button lit)
         public ClientCastRequest CurrentClientPetCast;
         public List<ClientCastRequest> PendingClientCasts = new List<ClientCastRequest>();
         public List<ClientCastRequest> PendingClientPetCasts = new List<ClientCastRequest>();
