@@ -51,6 +51,21 @@ namespace HermesProxy.World.Server
             if (opcode == 0)
                 opcode = Opcodes.GetOpcodeValueForVersion("MSG_MOVE_SET_FACING", Framework.Settings.ServerBuild);
 
+            // The modern 1.14 client sets MOVEFLAG_TURN_LEFT/RIGHT while turning in place
+            // (keyboard turn, or mouse-look turning), where a 1.12 client sends a stationary
+            // facing change without any turn flag. The legacy server cancels emote states
+            // (e.g. /dance) and stands you up from /sit on ANY turn flag, since its clear-on-move
+            // check uses MOVEFLAG_MASK_MOVING_OR_TURN. Forwarding the turn flag therefore stops
+            // the dance the instant the player turns, which does not happen on a native 1.12
+            // client. Strip the turn-only flags when the player isn't actually moving; a real
+            // move (forward/strafe/fall/etc.) still carries its own flags and cancels the emote
+            // server-side exactly as before.
+            if (movement.MoveInfo.HasMovementFlag(MovementFlagModern.TurnLeft | MovementFlagModern.TurnRight) &&
+                !movement.MoveInfo.HasMovementFlag(MovementFlagModern.MaskMoving))
+            {
+                movement.MoveInfo.RemoveMovementFlag(MovementFlagModern.TurnLeft | MovementFlagModern.TurnRight);
+            }
+
             WorldPacket packet = new WorldPacket(opcode);
             if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_2_0_10192))
                 packet.WritePackedGuid(movement.Guid.To64());
