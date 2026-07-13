@@ -429,13 +429,23 @@ namespace HermesProxy.World.Client
             // cast bar nor fire COMBAT_LOG_EVENT SPELL_INTERRUPT (so interrupt announces and
             // Plater's "Interrupted" never trigger). Synthesize the modern interrupt log here.
             // reason 61 = Interrupted (vanilla SPELL_FAILED_OTHER is only sent on interrupt, so
-            // the default reason is 61). Attribute it to the local player, the reliable kick source.
+            // the default reason is 61). Credit the actual interrupter recorded from the interrupt
+            // spell's SMSG_SPELL_GO on this victim; fall back to the local player if none is known.
             if (reason == 61 &&
                 casterUnit != GetSession().GameState.CurrentPlayerGuid &&
                 casterUnit != GetSession().GameState.CurrentPetGuid)
             {
+                WowGuid128 interrupter = GetSession().GameState.CurrentPlayerGuid;
+                if (GetSession().GameState.RecentInterrupts.TryGetValue(casterUnit, out var record))
+                {
+                    GetSession().GameState.RecentInterrupts.Remove(casterUnit);
+                    // Guard against a stale record from an earlier, unrelated kick on the same unit.
+                    if (Environment.TickCount - record.Tick <= 3000 && !record.Interrupter.IsEmpty())
+                        interrupter = record.Interrupter;
+                }
+
                 SpellInterruptLog interruptLog = new SpellInterruptLog();
-                interruptLog.Caster = GetSession().GameState.CurrentPlayerGuid;
+                interruptLog.Caster = interrupter;
                 interruptLog.Victim = casterUnit;
                 interruptLog.InterruptedSpellID = (int)spellId;
                 interruptLog.BackfireSpellID = (int)spellId;
@@ -546,6 +556,19 @@ namespace HermesProxy.World.Client
 
             SpellGo spell = new SpellGo();
             spell.Cast = HandleSpellStartOrGo(packet, true);
+
+            // Record the caster of an interrupt spell (Kick/Counterspell/Earth Shock/...) against each
+            // unit it lands on. Vanilla's later SMSG_SPELL_FAILED_OTHER (interrupted) does not name the
+            // interrupter, so we read this back to credit the real kicker in the synthesized interrupt log.
+            if (GameData.InterruptSpells.Contains((uint)spell.Cast.SpellID))
+            {
+                int now = Environment.TickCount;
+                foreach (var hit in spell.Cast.HitTargets)
+                    GetSession().GameState.RecentInterrupts[hit] = (spell.Cast.CasterUnit, now);
+                if (!spell.Cast.Target.Unit.IsEmpty())
+                    GetSession().GameState.RecentInterrupts[spell.Cast.Target.Unit] = (spell.Cast.CasterUnit, now);
+            }
+
             // (hovering casters keep their GO visuals: the release anim does not ground the
             // model — observed on Sapphiron — and stripping it would lose missile visuals)
             WorldPacket pendingGoPacket = null;

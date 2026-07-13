@@ -65,6 +65,12 @@ namespace HermesProxy
         public uint PendingTransferMapId;
         public uint LastEnteredAreaTrigger;
         public uint LastDispellSpellId;
+        // Vanilla has no interrupt opcode, so SMSG_SPELL_FAILED_OTHER (interrupted) never says who
+        // kicked. We record the caster of any interrupt spell (Kick/Counterspell/Earth Shock/...) that
+        // lands on a unit here, keyed by victim GUID, and read it back when synthesizing the modern
+        // SMSG_SPELL_INTERRUPT_LOG so Plater/announce credit the real interrupter, not always us.
+        // Only touched by the WorldClient thread (SPELL_GO then SPELL_FAILED_OTHER), so no lock needed.
+        public Dictionary<WowGuid128, (WowGuid128 Interrupter, int Tick)> RecentInterrupts = new();
         public string LeftChannelName = "";
         public bool IsPassingOnLoot;
         public int GroupUpdateCounter;

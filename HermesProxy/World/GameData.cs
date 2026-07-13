@@ -40,6 +40,7 @@ namespace HermesProxy.World
         public static Dictionary<uint, string> AreaNames = new Dictionary<uint, string>();
         public static Dictionary<uint, uint> RaceFaction = new Dictionary<uint, uint>();
         public static HashSet<uint> DispellSpells = new HashSet<uint>();
+        public static HashSet<uint> InterruptSpells = new HashSet<uint>();
         public static Dictionary<uint, List<float>> SpellEffectPoints = new();
         public static HashSet<uint> StackableAuras = new HashSet<uint>();
         public static HashSet<uint> MountAuras = new HashSet<uint>();
@@ -616,6 +617,7 @@ namespace HermesProxy.World
             LoadAreaNames();
             LoadRaceFaction();
             LoadDispellSpells();
+            LoadInterruptSpells();
             LoadSpellEffectPoints();
             LoadStackableAuras();
             LoadMountAuras();
@@ -1404,6 +1406,29 @@ namespace HermesProxy.World
 
                     uint spellId = UInt32.Parse(fields[0]);
                     DispellSpells.Add(spellId);
+                }
+            }
+        }
+
+        public static void LoadInterruptSpells()
+        {
+            var path = Path.Combine("CSV", "InterruptSpells.csv");
+            using (TextFieldParser csvParser = new TextFieldParser(path))
+            {
+                csvParser.CommentTokens = new string[] { "#" };
+                csvParser.SetDelimiters(new string[] { "," });
+                csvParser.HasFieldsEnclosedInQuotes = false;
+
+                // Skip the row with the column names
+                csvParser.ReadLine();
+
+                while (!csvParser.EndOfData)
+                {
+                    // Read current line fields, pointer moves to the next line.
+                    string[] fields = csvParser.ReadFields();
+
+                    uint spellId = UInt32.Parse(fields[0]);
+                    InterruptSpells.Add(spellId);
                 }
             }
         }
