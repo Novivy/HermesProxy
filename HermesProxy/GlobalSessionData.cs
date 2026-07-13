@@ -98,6 +98,7 @@ namespace HermesProxy
         public Dictionary<WowGuid128, Dictionary<byte, int>> UnitAuraDurationFull = new();
         public Dictionary<WowGuid128, Dictionary<byte, WowGuid128>> UnitAuraCaster = new();
         public Dictionary<WowGuid128, PlayerCache> CachedPlayers = new();
+        public Dictionary<uint, WowGuid128> CachedPetNumbers = new();
         public HashSet<WowGuid128> IgnoredPlayers = new();
         public Dictionary<WowGuid128, uint> PlayerGuildIds = new();
         public System.Threading.Mutex ObjectCacheMutex = new System.Threading.Mutex();
@@ -594,6 +595,15 @@ namespace HermesProxy
         }
         public WowGuid128 GetPetGuidByNumber(uint petNumber)
         {
+            // The pet number sent in CMSG_QUERY_PET_NAME is UNIT_FIELD_PETNUMBER, which is
+            // NOT the same as the entry embedded in the pet's GUID (that is the creature
+            // entry). Matching on GetEntry() only coincidentally works for the local player's
+            // own pet, so other group members' pets (hunter/warlock) resolved to null and
+            // showed as "Unknown". Look the number up in the cache we build from the field
+            // itself, and only fall back to the (usually wrong) entry scan if it is missing.
+            if (CachedPetNumbers.TryGetValue(petNumber, out var cached))
+                return cached;
+
             ObjectCacheMutex.WaitOne();
             foreach (var itr in ObjectCacheModern)
             {
@@ -602,7 +612,7 @@ namespace HermesProxy
                 {
                     ObjectCacheMutex.ReleaseMutex();
                     return itr.Key;
-                }  
+                }
             }
             ObjectCacheMutex.ReleaseMutex();
             return null;
