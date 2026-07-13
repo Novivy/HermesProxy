@@ -189,7 +189,13 @@ namespace HermesProxy.World.Server
 
             List<string> lines = File.ReadAllLines(path).ToList();
 
-            var completedQuestIds = lines.Select(x => uint.Parse(x.Split(',').FirstOrDefault() ?? "0")).ToList();
+            var completedQuestIds = new List<uint>();
+            foreach (var line in lines)
+            {
+                var field = line.Split(',').FirstOrDefault();
+                if (uint.TryParse(field, out uint questId))
+                    completedQuestIds.Add(questId);
+            }
             return completedQuestIds;
         }
 
