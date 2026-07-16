@@ -18,6 +18,18 @@ public class Program
         CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
         Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
 
+        // Wine's bcrypt.dll cannot perform the managed TripleDES operation that
+        // .NET's PKCS12 iteration counter runs, so loading our embedded (empty
+        // password) BNet server certificate throws under Wine (0xc10000bb). Lifting
+        // the "unspecified password" iteration limit makes .NET skip that managed
+        // path and let the platform certificate loader handle the PFX instead.
+        // Guarded to Wine only, so real Windows builds are completely unaffected.
+        // (Under Wine .NET still reports OSPlatform.Windows, so we detect Wine
+        // specifically via a pure-managed file check - no P/Invoke, no dynamic API
+        // resolution, hence no added AV heuristic surface.)
+        if (OsSpecific.IsRunningUnderWine())
+            AppContext.SetData("System.Security.Cryptography.Pkcs12UnspecifiedPasswordIterationLimit", -1);
+
         OsSpecific.ShrinkConsoleWindow();
 
         var commandTree = new RootCommand("Hermes Proxy: Allows you to play on legacy WoW server with modern client")
@@ -177,6 +189,23 @@ public class CommandLineArguments
 
 internal static class OsSpecific
 {
+    /// True only when running under Wine (i.e. on Linux). Uses pure managed file
+    /// checks - no P/Invoke and no dynamic API resolution - so it adds no AV
+    /// heuristic surface. Real Windows has neither of these markers, so this
+    /// returns false there and the caller's behaviour is unchanged on Windows.
+    public static bool IsRunningUnderWine()
+    {
+        try
+        {
+            return File.Exists(@"C:\windows\system32\winemenubuilder.exe") // Wine-only stub
+                || Directory.Exists(@"Z:\usr");                            // Wine maps Z:\ to /
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     /// Checks whenever or not we are in our own console
     /// For example on Windows you can just double click the exe which spawns a new Console Window Host
     public static bool AreWeInOurOwnConsole()
