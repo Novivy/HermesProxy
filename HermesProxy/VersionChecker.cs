@@ -923,12 +923,17 @@ namespace HermesProxy
         {
             if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V2_0_1_6180))
             {
-                // Vanilla DOES encode which effect indices are active in the aura-flags byte
-                // (EffectIndex0/1/2). Read them so the 1.14 client knows which effects are live.
-                // This matters for multi-effect toggle auras like Stealth (1785), whose MOD_STEALTH
-                // is effect index 1 — without its bit set the client sees the stealth effect as
-                // inactive and never engages the crouch idle animation.
-                activeFlags = 0;
+                // CMaNGOS-classic does NOT encode effect-index bits in the vanilla aura-flags byte.
+                // SpellAuraHolder::SetAuraFlag only ever sets AFLAG_CANCELABLE (0x01), AFLAG_UNK3
+                // (0x04, a "positive aura" marker) or AFLAG_UNK4 (0x08, a "negative aura" marker).
+                // Those markers collide with our AuraFlagsVanilla.EffectIndex1 (0x04) / EffectIndex0
+                // (0x08), so decoding them as effect indices mislabels every positive aura as
+                // "effect 0 inactive, effect 1 active". That turned off minimap tracking: Find Herbs
+                // /Find Minerals apply SPELL_AURA_TRACK_RESOURCES on effect index 0, so the 1.14
+                // client saw the tracking effect as inactive and stopped showing herb/mineral dots.
+                // Default effect 0 active, which is correct for virtually all vanilla auras (tracking,
+                // buffs, debuffs; even Stealth's MOD_STEALTH sits on effect index 0).
+                activeFlags = 1;
                 newFlags = AuraFlagsModern.None;
 
                 if (slot >= 32)
@@ -938,18 +943,6 @@ namespace HermesProxy
 
                 if (oldFlags.HasAnyFlag(AuraFlagsVanilla.Cancelable))
                     newFlags |= AuraFlagsModern.Cancelable;
-
-                if (oldFlags.HasAnyFlag(AuraFlagsVanilla.EffectIndex0))
-                    activeFlags |= 1;
-                if (oldFlags.HasAnyFlag(AuraFlagsVanilla.EffectIndex1))
-                    activeFlags |= 2;
-                if (oldFlags.HasAnyFlag(AuraFlagsVanilla.EffectIndex2))
-                    activeFlags |= 4;
-
-                // Fallback: some toggle auras arrive with no effect-index bits set. Keep effect 0
-                // active so the client still recognises the aura as live.
-                if (activeFlags == 0)
-                    activeFlags = 1;
             }
             else if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V3_0_2_9056))
             {
