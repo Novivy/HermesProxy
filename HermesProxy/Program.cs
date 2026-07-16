@@ -28,7 +28,7 @@ public class Program
         // specifically via a pure-managed file check - no P/Invoke, no dynamic API
         // resolution, hence no added AV heuristic surface.)
         if (OsSpecific.IsRunningUnderWine())
-            AppDomain.CurrentDomain.SetData("System.Security.Cryptography.Pkcs12UnspecifiedPasswordIterationLimit", -1);
+            AppContext.SetData("System.Security.Cryptography.Pkcs12UnspecifiedPasswordIterationLimit", -1);
 
         OsSpecific.ShrinkConsoleWindow();
 
