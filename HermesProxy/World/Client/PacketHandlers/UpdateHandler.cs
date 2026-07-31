@@ -1337,8 +1337,12 @@ namespace HermesProxy.World.Client
                     if (calculatedBaseHeight == 0)
                         calculatedBaseHeight = mountDisplayId != 0 ? PlayerHeight.Mounted : PlayerHeight.Normal;
 
-                    var heightScale = Math.Max(scale, regularNativeDisplaySize); // you HitBox cannot be smaller than displaySize in legacy clients
-                    var scaledHeight = heightScale * calculatedBaseHeight;
+                    // calculatedBaseHeight already contains CreatureModelScale * ModelScale, and the legacy
+                    // server bakes that same model scale into OBJECT_FIELD_SCALE_X, so "scale" (rawScaleX
+                    // divided back out) is the real object scale and the only factor left to apply.
+                    // Clamping it up to regularNativeDisplaySize squared the model scale: tauren female ended
+                    // up at 3.30 (taller than PlayerHeight.Mounted = 3.08), which blocks her in low doorways.
+                    var scaledHeight = scale * calculatedBaseHeight;
 
                     var displayScale = regularNativeDisplaySize * scale;
 
