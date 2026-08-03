@@ -99,6 +99,26 @@ namespace HermesProxy.World.Server
                     }
                 }
 
+                // Generic fallback for every table without an explicit branch above (Map, AreaTable, ...).
+                // The client learns about our records from SMSG_AVAILABLE_HOTFIXES, but it also queries
+                // some of them directly through DB_QUERY_BULK - and that path used to answer Invalid for
+                // anything not handled above, which makes the client reject the record. Serve the loaded
+                // hotfix content instead.
+                if (reply.Status != HotfixStatus.Valid)
+                {
+                    foreach (HotfixRecord record in GameData.Hotfixes.Values)
+                    {
+                        if (record.TableHash != query.TableHash || record.RecordId != id)
+                            continue;
+
+                        reply.Status = HotfixStatus.Valid;
+                        reply.Data.WriteBytes(record.HotfixContent);
+
+                        Log.Print(LogType.Debug, $"Served hotfix record {id} from {query.TableHash} through DB_QUERY_BULK.");
+                        break;
+                    }
+                }
+
                 SendPacket(reply);
             }
         }

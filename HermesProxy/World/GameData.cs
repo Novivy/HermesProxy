@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -1816,6 +1817,8 @@ namespace HermesProxy.World
         public const uint HotfixSpellReagentsBegin = 300000;
         public const uint HotfixSpellVisualEffectNameBegin = 310000;
         public const uint HotfixTalentBegin = 320000;
+        public const uint HotfixMapBegin = 330000;
+        public const uint HotfixAreaTableBegin = 340000;
         public static Dictionary<uint, HotfixRecord> Hotfixes = new Dictionary<uint, HotfixRecord>();
         public static void LoadHotfixes()
         {
@@ -1840,6 +1843,178 @@ namespace HermesProxy.World
             LoadCreatureDisplayInfoOptionHotfixes();
             LoadSpellReagentsHotfixes();
             LoadTalentHotfixes();
+            LoadMapHotfixes();
+            LoadAreaTableHotfixes();
+        }
+
+        // Adds area records the 1.14 client's own AreaTable.db2 does not have, so custom/ported
+        // maps get a proper zone name in the UI (zone text, world map, chat) instead of a blank.
+        // Used for Karazhan (area 3457 on map 532).
+        // Build 1.14.2.42597 layout = AreaTable.dbd LAYOUT 2AFB00FF -- the SAME layout as
+        // 2.5.3.42598, which is where the authentic TBC row values come from, so they map 1:1.
+        // ID is $noninline$ -> carried by RecordId, NOT written into the record content.
+        public static void LoadAreaTableHotfixes()
+        {
+            var path = Path.Combine("CSV", "Hotfix", $"AreaTable{ModernVersion.ExpansionVersion}.csv");
+            if (!File.Exists(path))
+                return;
+            using (TextFieldParser csvParser = new TextFieldParser(path))
+            {
+                csvParser.CommentTokens = new string[] { "#" };
+                csvParser.SetDelimiters(new string[] { "," });
+                csvParser.HasFieldsEnclosedInQuotes = false;
+
+                // Skip the row with the column names
+                csvParser.ReadLine();
+
+                uint counter = 0;
+                while (!csvParser.EndOfData)
+                {
+                    counter++;
+
+                    string[] fields = csvParser.ReadFields();
+
+                    uint id = UInt32.Parse(fields[0]);
+                    string zoneName = fields[1];
+                    string areaName = fields[2];
+                    ushort continentId = UInt16.Parse(fields[3]);
+                    ushort parentAreaId = UInt16.Parse(fields[4]);
+                    short areaBit = Int16.Parse(fields[5]);
+                    byte soundProviderPref = Byte.Parse(fields[6]);
+                    byte soundProviderPrefUw = Byte.Parse(fields[7]);
+                    ushort ambienceId = UInt16.Parse(fields[8]);
+                    ushort uwAmbience = UInt16.Parse(fields[9]);
+                    ushort zoneMusic = UInt16.Parse(fields[10]);
+                    ushort uwZoneMusic = UInt16.Parse(fields[11]);
+                    sbyte explorationLevel = SByte.Parse(fields[12]);
+                    ushort introSound = UInt16.Parse(fields[13]);
+                    uint uwIntroSound = UInt32.Parse(fields[14]);
+                    byte factionGroupMask = Byte.Parse(fields[15]);
+                    float ambientMultiplier = Single.Parse(fields[16], CultureInfo.InvariantCulture);
+                    byte mountFlags = Byte.Parse(fields[17]);
+                    short pvpCombatWorldStateId = Int16.Parse(fields[18]);
+                    byte wildPetLevelMin = Byte.Parse(fields[19]);
+                    byte wildPetLevelMax = Byte.Parse(fields[20]);
+                    byte windSettingsId = Byte.Parse(fields[21]);
+                    int flags0 = Int32.Parse(fields[22]);
+                    int flags1 = Int32.Parse(fields[23]);
+
+                    HotfixRecord record = new HotfixRecord();
+                    record.TableHash = DB2Hash.AreaTable;
+                    record.HotfixId = HotfixAreaTableBegin + counter;
+                    record.UniqueId = record.HotfixId;
+                    record.RecordId = id;
+                    record.Status = HotfixStatus.Valid;
+                    // ID is non-inline (in the id-block), so it is NOT written into the content.
+                    record.HotfixContent.WriteCString(zoneName);
+                    record.HotfixContent.WriteCString(areaName);   // AreaName_lang (locstring)
+                    record.HotfixContent.WriteUInt16(continentId);
+                    record.HotfixContent.WriteUInt16(parentAreaId);
+                    record.HotfixContent.WriteInt16(areaBit);
+                    record.HotfixContent.WriteUInt8(soundProviderPref);
+                    record.HotfixContent.WriteUInt8(soundProviderPrefUw);
+                    record.HotfixContent.WriteUInt16(ambienceId);
+                    record.HotfixContent.WriteUInt16(uwAmbience);
+                    record.HotfixContent.WriteUInt16(zoneMusic);
+                    record.HotfixContent.WriteUInt16(uwZoneMusic);
+                    record.HotfixContent.WriteInt8(explorationLevel);
+                    record.HotfixContent.WriteUInt16(introSound);
+                    record.HotfixContent.WriteUInt32(uwIntroSound);
+                    record.HotfixContent.WriteUInt8(factionGroupMask);
+                    record.HotfixContent.WriteFloat(ambientMultiplier);
+                    record.HotfixContent.WriteUInt8(mountFlags);
+                    record.HotfixContent.WriteInt16(pvpCombatWorldStateId);
+                    record.HotfixContent.WriteUInt8(wildPetLevelMin);
+                    record.HotfixContent.WriteUInt8(wildPetLevelMax);
+                    record.HotfixContent.WriteUInt8(windSettingsId);
+                    record.HotfixContent.WriteInt32(flags0);
+                    record.HotfixContent.WriteInt32(flags1);
+                    for (int i = 24; i <= 27; i++)                 // LiquidTypeID[4]
+                        record.HotfixContent.WriteUInt16(UInt16.Parse(fields[i]));
+                    Hotfixes.Add(record.HotfixId, record);
+                }
+            }
+        }
+
+        // Adds map records the 1.14 client's own Map.db2 does not have, so custom/ported maps can be
+        // entered on the modern client. Used for Karazhan (map 532), whose geometry is shipped to the
+        // client as loose files + an Arctium fileId mapping; without a Map.db2 row the client cannot
+        // resolve the map's Directory ("Karazahn") and hangs forever on the loading screen.
+        // Build 1.14.2.42597 layout = Map.dbd LAYOUT C08A6797: ID is $noninline$ -> carried by
+        // RecordId, NOT written into the record content. Every locstring is written as one CString.
+        public static void LoadMapHotfixes()
+        {
+            var path = Path.Combine("CSV", "Hotfix", $"Map{ModernVersion.ExpansionVersion}.csv");
+            if (!File.Exists(path))
+                return;
+            using (TextFieldParser csvParser = new TextFieldParser(path))
+            {
+                csvParser.CommentTokens = new string[] { "#" };
+                csvParser.SetDelimiters(new string[] { "," });
+                csvParser.HasFieldsEnclosedInQuotes = false;
+
+                // Skip the row with the column names
+                csvParser.ReadLine();
+
+                uint counter = 0;
+                while (!csvParser.EndOfData)
+                {
+                    counter++;
+
+                    string[] fields = csvParser.ReadFields();
+
+                    uint id = UInt32.Parse(fields[0]);
+                    string directory = fields[1];
+                    string mapName = fields[2];
+                    byte mapType = Byte.Parse(fields[3]);
+                    sbyte instanceType = SByte.Parse(fields[4]);
+                    byte expansionId = Byte.Parse(fields[5]);
+                    ushort areaTableId = UInt16.Parse(fields[6]);
+                    short loadingScreenId = Int16.Parse(fields[7]);
+                    short timeOfDayOverride = Int16.Parse(fields[8]);
+                    short parentMapId = Int16.Parse(fields[9]);
+                    short cosmeticParentMapId = Int16.Parse(fields[10]);
+                    byte timeOffset = Byte.Parse(fields[11]);
+                    float minimapIconScale = Single.Parse(fields[12], CultureInfo.InvariantCulture);
+                    short corpseMapId = Int16.Parse(fields[13]);
+                    byte maxPlayers = Byte.Parse(fields[14]);
+                    short windSettingsId = Int16.Parse(fields[15]);
+                    int zmpFileDataId = Int32.Parse(fields[16]);
+                    int flags0 = Int32.Parse(fields[17]);
+                    int flags1 = Int32.Parse(fields[18]);
+
+                    HotfixRecord record = new HotfixRecord();
+                    record.TableHash = DB2Hash.Map;
+                    record.HotfixId = HotfixMapBegin + counter;
+                    record.UniqueId = record.HotfixId;
+                    record.RecordId = id;
+                    record.Status = HotfixStatus.Valid;
+                    // ID is non-inline (in the id-block), so it is NOT written into the record content.
+                    record.HotfixContent.WriteCString(directory);
+                    record.HotfixContent.WriteCString(mapName);     // MapName_lang
+                    record.HotfixContent.WriteCString("");          // MapDescription0_lang
+                    record.HotfixContent.WriteCString("");          // MapDescription1_lang
+                    record.HotfixContent.WriteCString("");          // PvpShortDescription_lang
+                    record.HotfixContent.WriteCString("");          // PvpLongDescription_lang
+                    record.HotfixContent.WriteUInt8(mapType);
+                    record.HotfixContent.WriteInt8(instanceType);
+                    record.HotfixContent.WriteUInt8(expansionId);
+                    record.HotfixContent.WriteUInt16(areaTableId);
+                    record.HotfixContent.WriteInt16(loadingScreenId);
+                    record.HotfixContent.WriteInt16(timeOfDayOverride);
+                    record.HotfixContent.WriteInt16(parentMapId);
+                    record.HotfixContent.WriteInt16(cosmeticParentMapId);
+                    record.HotfixContent.WriteUInt8(timeOffset);
+                    record.HotfixContent.WriteFloat(minimapIconScale);
+                    record.HotfixContent.WriteInt16(corpseMapId);
+                    record.HotfixContent.WriteUInt8(maxPlayers);
+                    record.HotfixContent.WriteInt16(windSettingsId);
+                    record.HotfixContent.WriteInt32(zmpFileDataId);
+                    record.HotfixContent.WriteInt32(flags0);
+                    record.HotfixContent.WriteInt32(flags1);
+                    Hotfixes.Add(record.HotfixId, record);
+                }
+            }
         }
 
         // Removes the Entangling Roots (spell 339) prerequisite from the Nature's Grasp talent

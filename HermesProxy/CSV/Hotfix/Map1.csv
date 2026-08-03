@@ -1,0 +1,2 @@
+ID,Directory,MapName,MapType,InstanceType,ExpansionID,AreaTableID,LoadingScreenID,TimeOfDayOverride,ParentMapID,CosmeticParentMapID,TimeOffset,MinimapIconScale,CorpseMapID,MaxPlayers,WindSettingsID,ZmpFileDataID,Flags0,Flags1
+532,Karazahn,Karazhan,1,2,1,3457,200,-1,-1,-1,0,1.0,0,10,0,0,16858641,262272
