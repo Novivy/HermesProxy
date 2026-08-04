@@ -1,2 +1,3 @@
 ID,ZoneName,AreaName_lang,ContinentID,ParentAreaID,AreaBit,SoundProviderPref,SoundProviderPrefUnderwater,AmbienceID,UwAmbience,ZoneMusic,UwZoneMusic,ExplorationLevel,IntroSound,UwIntroSound,FactionGroupMask,Ambient_multiplier,MountFlags,PvpCombatWorldStateID,WildBattlePetLevelMin,WildBattlePetLevelMax,WindSettingsID,Flags_0,Flags_1,LiquidTypeID_0,LiquidTypeID_1,LiquidTypeID_2,LiquidTypeID_3
 3457,Karazhan,Karazhan,532,0,1085,0,0,49,2172,0,0,0,0,0,0,0.60000002384,0,-1,0,0,0,0,256,0,0,0,0
+3487,The Wolfmarch,The Wolfmarch,1000,0,1077,0,0,0,0,0,0,0,0,0,0,1.0,0,-1,0,0,0,0,0,0,0,0,0
