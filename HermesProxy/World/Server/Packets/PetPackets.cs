@@ -18,10 +18,12 @@
 
 using Framework.Constants;
 using Framework.GameMath;
+using Framework.Logging;
 using HermesProxy.World.Enums;
 using HermesProxy.World.Objects;
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 namespace HermesProxy.World.Server.Packets
 {
@@ -360,6 +362,34 @@ namespace HermesProxy.World.Server.Packets
 
         public WowGuid128 PetGUID;
         public uint SpellID;
+    }
+
+    class PetSpellAutocast : ClientPacket
+    {
+        public PetSpellAutocast(WorldPacket packet) : base(packet) { }
+
+        public override void Read()
+        {
+            try
+            {
+                PetGUID = _worldPacket.ReadPackedGuid128();
+                SpellID = _worldPacket.ReadUInt32();
+                AutocastEnabled = _worldPacket.CanRead() && _worldPacket.HasBit();
+            }
+            catch (EndOfStreamException)
+            {
+                // Bad read means our assumed layout is wrong; drop the toggle
+                // instead of throwing out of the socket read thread.
+                Log.Print(LogType.Error, $"CMSG_PET_SPELL_AUTOCAST: could not parse {_worldPacket.GetSize()} byte packet");
+                PetGUID = new WowGuid128();
+                SpellID = 0;
+                AutocastEnabled = false;
+            }
+        }
+
+        public WowGuid128 PetGUID;
+        public uint SpellID;
+        public bool AutocastEnabled;
     }
 
     class PetInfoRequest : ClientPacket

@@ -115,6 +115,19 @@ namespace HermesProxy.World.Server
             SendPacketToServer(packet);
         }
 
+        [PacketHandler(Opcode.CMSG_PET_SPELL_AUTOCAST)]
+        void HandlePetSpellAutocast(PetSpellAutocast autocast)
+        {
+            if (autocast.PetGUID.IsEmpty() || autocast.SpellID == 0)
+                return;
+
+            WorldPacket packet = new WorldPacket(Opcode.CMSG_PET_SPELL_AUTOCAST);
+            packet.WriteGuid(autocast.PetGUID.To64());
+            packet.WriteUInt32(autocast.SpellID);
+            packet.WriteBool(autocast.AutocastEnabled); // 1 for on, 0 for off
+            SendPacketToServer(packet);
+        }
+
         [PacketHandler(Opcode.CMSG_REQUEST_PET_INFO)]
         void HandleRequestPetInfo(PetInfoRequest r)
         {
