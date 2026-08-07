@@ -28,6 +28,7 @@ namespace HermesProxy.World.Client
             GetSession().GameState.LastAuraCasterOnTarget.Remove(guid);
             GetSession().GameState.HoveringUnits.Remove(guid);
             GetSession().GameState.KnownSwimmingMobs.Remove(guid);
+            GetSession().GameState.WaterCapableMobs.Remove(guid);
             GetSession().GameState.ForcedStealthAnimUnits.Remove(guid);
 
             UpdateObject updateObject = new UpdateObject(GetSession().GameState);
@@ -324,6 +325,7 @@ namespace HermesProxy.World.Client
                 // re-entry behave exactly like the first login create (seeded fresh from this packet).
                 GetSession().GameState.HoveringUnits.Remove(guid);
                 GetSession().GameState.KnownSwimmingMobs.Remove(guid);
+                GetSession().GameState.WaterCapableMobs.Remove(guid);
                 GetSession().GameState.ForcedStealthAnimUnits.Remove(guid);
 
                 // If the pet is too far away, sends a SMSG_UPDATE_OBJECT protocol
@@ -1800,7 +1802,7 @@ namespace HermesProxy.World.Client
                         // in HandleMonsterMove. The 0x8000 bit itself is already carried over by CastFlags.
                         if (guid.GetHighType() == HighGuidType.Creature &&
                             vanillaFlags.HasAnyFlag(UnitFlagsVanilla.CanSwim))
-                            GetSession().GameState.KnownSwimmingMobs.Add(guid);
+                            GetSession().GameState.WaterCapableMobs.Add(guid);
 
                         if (vanillaFlags.HasAnyFlag(UnitFlagsVanilla.PetRename))
                         {
@@ -1968,7 +1970,15 @@ namespace HermesProxy.World.Client
                 // client defaults to the ground/walk anim underwater. Force AnimTier=Swim for mobs
                 // registered as swimming (seeded from UNIT_FLAG_SWIMMING in the flags block above,
                 // which runs earlier in this same method on the create packet).
-                if (GetSession().GameState.KnownSwimmingMobs.Contains(guid))
+                // Animation-shaped state, so the capability registry is good enough here (the client
+                // still picks walk-vs-swim by liquid). But never for a creature the server has put in
+                // hover/flight mode: WaterCapableMobs holds every InhabitType=3 creature, airborne
+                // scripted bosses included, and forcing AnimTier=Swim on them overwrites the
+                // AnimTier=Hover the hover handler set - swim tier with no water makes the client fall
+                // back to the ground walk cycle, i.e. Onyxia walking through the air.
+                if ((GetSession().GameState.KnownSwimmingMobs.Contains(guid) ||
+                     GetSession().GameState.WaterCapableMobs.Contains(guid)) &&
+                    !GetSession().GameState.HoveringUnits.Contains(guid))
                 {
                     updateData.UnitData.AnimTier = 1; // AnimTier.Swim
 

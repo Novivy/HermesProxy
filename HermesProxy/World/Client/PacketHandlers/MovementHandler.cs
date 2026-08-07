@@ -17,14 +17,38 @@ namespace HermesProxy.World.Client
             return GetSession().GameState.KnownSwimmingMobs.Contains(guid);
         }
 
+        // Merely water-CAPABLE (UNIT_FLAG_SWIMMING). Animation-shaped state only - this covers most
+        // land NPCs and every flying boss, so it must never drive gravity or ground-snap decisions.
+        private bool IsWaterCapableMob(WowGuid128 guid)
+        {
+            return GetSession().GameState.WaterCapableMobs.Contains(guid);
+        }
+
+        // True while the server has this creature in hover/flight mode (SMSG_SPLINE_MOVE_SET_HOVER,
+        // i.e. cmangos Unit::SetHover) - Onyxia's air phase, Sapphiron, and friends.
+        //
+        // This is the discriminator the swim synthesis was missing. UNIT_FLAG_SWIMMING is set on EVERY
+        // InhabitType=3 creature (Creature.cpp:571) as a capability hint, not as "is in water right
+        // now", so airborne dragons were registered as swimmers too. Forcing swim state on them costs
+        // the client its fly/hover anim tier and it falls back to the ground walk cycle: Onyxia visibly
+        // walking through the air. An airborne creature is never swimming, so hover always wins.
+        private bool IsAirborneMob(WowGuid128 guid)
+        {
+            return GetSession().GameState.HoveringUnits.Contains(guid);
+        }
+
         // Fix up a swimming creature's (already Modern-format) movement flags before they reach
         // the modern client. The vanilla protocol never sent gravity/anim-tier state for aquatic
         // NPCs, so without this the 1.14 client ground-snaps the model to the water surface and
         // plays the walk anim. Ensure the Swimming bit is set, drop the falling bits, and disable
         // gravity so the client renders the swim moving anim. Call AFTER the WotLK->Modern cast.
+        //
+        // Physics-shaped, so it keys off KnownSwimmingMobs (observed IN WATER) and never off
+        // WaterCapableMobs - baking DisableGravity into a land creature's create block leaves it
+        // hovering off the ground.
         private bool ApplySwimOverrideIfNeeded(WowGuid128 guid, MovementInfo moveInfo)
         {
-            if (!IsSwimmingMob(guid))
+            if (!IsSwimmingMob(guid) || IsAirborneMob(guid))
                 return false;
 
             moveInfo.Flags &= ~(uint)(MovementFlagModern.Falling | MovementFlagModern.FallingFar);
@@ -34,6 +58,11 @@ namespace HermesProxy.World.Client
             moveInfo.JumpHorizontalSpeed = 0.0f;
             return true;
         }
+
+        // The modern spline flags carry the anim tier as a small VALUE in the low 3 bits (0 Ground,
+        // 1 Swim, 2 Hover, 3 Fly, 4 Submerged), not as independent bits - so a tier has to be masked
+        // out before a new one is OR'd in, or e.g. Swim|Fly silently reads back as something else.
+        private const SplineFlagModern SPLINE_ANIM_TIER_MASK = (SplineFlagModern)0x7;
 
         // Handlers for SMSG opcodes coming the legacy world server
         [PacketHandler(Opcode.MSG_MOVE_START_FORWARD)]
@@ -226,6 +255,7 @@ namespace HermesProxy.World.Client
                 // caches are left alone: a create block rebuilds its cache entry via ObjectUpdateBuilder.)
                 GetSession().GameState.HoveringUnits.Clear();
                 GetSession().GameState.KnownSwimmingMobs.Clear();
+                GetSession().GameState.WaterCapableMobs.Clear();
                 GetSession().GameState.ForcedStealthAnimUnits.Clear();
 
                 SendPacketToClient(teleport);
@@ -502,7 +532,7 @@ namespace HermesProxy.World.Client
                     moveSpline.SplineType = SplineTypeModern.None;
                     // Keep the swim idle anim on stop; without AnimTierSwim the modern client
                     // reverts to ground anim and snaps the mob's Z to the water surface.
-                    if (IsSwimmingMob(guid))
+                    if (IsSwimmingMob(guid) && !IsAirborneMob(guid))
                         moveSpline.SplineFlags |= SplineFlagModern.AnimTierSwim | SplineFlagModern.CanSwim;
                     MonsterMove moveStop = new MonsterMove(guid, moveSpline);
                     SendPacketToClient(moveStop);
@@ -572,11 +602,34 @@ namespace HermesProxy.World.Client
             // creature; the 1.14 client still selects walk-vs-swim by liquid, so this is a capability
             // hint, not a forced on-land swim. Restricted to creatures (never players/pets).
             uint cachedUnitFlags = GetSession().GameState.GetLegacyFieldValueUInt32(guid, UnitField.UNIT_FIELD_FLAGS);
-            bool unitCanSwim = ((UnitFlagsVanilla)cachedUnitFlags).HasAnyFlag(UnitFlagsVanilla.CanSwim);
-            if (guid.GetHighType() == HighGuidType.Creature && (unitCanSwim || IsSwimmingMob(guid)))
+            bool unitCanSwim = ((UnitFlagsVanilla)cachedUnitFlags).HasAnyFlag(UnitFlagsVanilla.CanSwim) ||
+                               IsWaterCapableMob(guid);
+            bool observedSwimming = IsSwimmingMob(guid);
+
+            // ...but a spline the server explicitly flagged Flying is an authoritative airborne path:
+            // cmangos FORCED_MOVEMENT_FLIGHT (Onyxia's air phase, Eranikus, the scourge invasion movers)
+            // rides on it. Since UNIT_FLAG_SWIMMING is only a capability bit that this core sets on every
+            // InhabitType=3 creature - Onyxia included - the swim synthesis must not claim those splines.
+            // Only a creature we have actually seen in water (MOVEFLAG_SWIMMING) keeps the swim treatment
+            // on a Flying spline, which is the underwater 3D roam the strip was written for.
+            bool authoritativeFlyPath = guid.GetHighType() == HighGuidType.Creature &&
+                                        moveSpline.SplineFlags.HasAnyFlag(SplineFlagModern.Flying) &&
+                                        (IsAirborneMob(guid) || !observedSwimming);
+
+            if (authoritativeFlyPath)
+            {
+                // Keep Flying (3D path, exact Z) and pin the anim tier to Fly. The vanilla protocol has
+                // no anim tier at all, so without this the modern client animates the flight with the
+                // ground run cycle - Onyxia visibly running through the air across her lair.
+                moveSpline.SplineFlags &= ~(SplineFlagModern.SmoothGroundPath | SplineFlagModern.Falling | SplineFlagModern.FallingSlow);
+                moveSpline.SplineFlags = (moveSpline.SplineFlags & ~SPLINE_ANIM_TIER_MASK) | SplineFlagModern.AnimTierFly;
+            }
+            else if (guid.GetHighType() == HighGuidType.Creature && (unitCanSwim || observedSwimming) &&
+                     !IsAirborneMob(guid))
             {
                 moveSpline.SplineFlags &= ~(SplineFlagModern.SmoothGroundPath | SplineFlagModern.Falling | SplineFlagModern.FallingSlow | SplineFlagModern.Flying);
-                moveSpline.SplineFlags |= SplineFlagModern.AnimTierSwim | SplineFlagModern.CanSwim;
+                moveSpline.SplineFlags = (moveSpline.SplineFlags & ~SPLINE_ANIM_TIER_MASK) | SplineFlagModern.AnimTierSwim;
+                moveSpline.SplineFlags |= SplineFlagModern.CanSwim;
             }
 
             if (hasAnimTier)
