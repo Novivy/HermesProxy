@@ -319,6 +319,9 @@ namespace HermesProxy.World.Client
                 GetSession().GameState.WaterCapableMobs.Clear();
                 GetSession().GameState.LyingUnitsGravityOff.Clear();
                 GetSession().GameState.ForcedStealthAnimUnits.Clear();
+                // Cast ids embed the map id, so shot numbering from the old map means nothing here.
+                lock (GetSession().GameState.AutoRepeatShotsLock)
+                    GetSession().GameState.AutoRepeatShots.Clear();
 
                 SendPacketToClient(teleport);
                 if (teleport.MapID > 1)

@@ -183,6 +183,13 @@ namespace HermesProxy
         public Dictionary<WowGuid128, System.Threading.CancellationTokenSource> OtherAutoShotTimers = new();
         public readonly object OtherAutoShotTimersLock = new object();
 
+        // Per-caster shot numbering for auto-repeat spells (wand Shoot, Auto Shot), so that two bolts
+        // in the air at once get distinct cast ids instead of the one id derived from spell + caster.
+        // See SpellHandler.OpenAutoRepeatShot for why. Written only by the WorldClient thread, but
+        // locked because the numbering is also read against SpellCastLock-protected state.
+        public Dictionary<WowGuid128, AutoRepeatShotTracker> AutoRepeatShots = new();
+        public readonly object AutoRepeatShotsLock = new object();
+
         private GameSessionData()
         {
             
@@ -950,6 +957,13 @@ namespace HermesProxy
         public uint CastDuration;
         public WorldPacket PendingLegacyPacket;
     }
+    public class AutoRepeatShotTracker
+    {
+        public uint SpellId;                                    // the auto-repeat spell this unit is firing
+        public byte Sequence;                                   // number of the shot currently being fired
+        public List<(byte Sequence, int Tick)> InFlight = new(); // shots whose delayed damage log is still pending, oldest first
+    }
+
     public class ArenaTeamData
     {
         public string Name;

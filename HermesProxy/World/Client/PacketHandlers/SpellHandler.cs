@@ -737,6 +737,113 @@ namespace HermesProxy.World.Client
             SendPacketToClient(cancel);
         }
 
+        // A bolt is dropped from the in-flight list after this long without a damage log, so a shot
+        // that produces none (immune target, target despawned, log lost) cannot shift the pairing of
+        // every later shot forever. Comfortably above the longest flight time (30 yd at 20 yd/s = 1.5s).
+        private const int AutoRepeatShotInFlightTimeoutMs = 4000;
+
+        // Auto-repeat shots overlap near max range: a wand bolt spends 1.5s crossing 30 yd, longer
+        // than the wand swing, so the next shot is fired while the previous bolt is still flying.
+        // The cast id synthesized in HandleSpellStartOrGo only depends on spell + caster, so both
+        // bolts shared one id and the modern client - which tracks in-flight casts by id - held the
+        // second one back until the first resolved: the character stayed in the aim pose, the bolt
+        // left late, and the damage log (delayed server-side by the flight time) landed before it.
+        // Numbering the shots gives every bolt its own id. Called on SMSG_SPELL_START.
+        private WowGuid128 OpenAutoRepeatShot(WowGuid128 casterUnit, uint spellId)
+        {
+            var gameState = GetSession().GameState;
+
+            // The shot that answers the client's own Shoot request must keep the ServerGUID already
+            // announced to it in SpellPrepare (HandleSpellGo forces that id on this shot), so restart
+            // the numbering at 0 there - sequence 0 reproduces the plain spell + caster id.
+            bool startsVolley = false;
+            if (casterUnit == gameState.CurrentPlayerGuid)
+            {
+                lock (gameState.SpellCastLock)
+                    startsVolley = gameState.CurrentClientSpecialCast != null &&
+                                   gameState.CurrentClientSpecialCast.SpellId == spellId;
+            }
+
+            byte sequence;
+            lock (gameState.AutoRepeatShotsLock)
+            {
+                var tracker = GetAutoRepeatShotTracker(gameState, casterUnit, spellId);
+                // Restarting the numbering deliberately keeps the in-flight list: a bolt from the
+                // previous volley may still be flying and its damage log lands before this volley's.
+                tracker.Sequence = startsVolley ? (byte)0 : (byte)(tracker.Sequence + 1);
+                sequence = tracker.Sequence;
+            }
+
+            return MakeAutoRepeatShotCastId(casterUnit, spellId, sequence);
+        }
+
+        // Called on SMSG_SPELL_GO: reuses the id opened by this shot's SMSG_SPELL_START and, when the
+        // shot connected, queues it as in flight so the delayed damage log can be matched back to it.
+        private WowGuid128 ReleaseAutoRepeatShot(WowGuid128 casterUnit, uint spellId, bool hasHitTargets)
+        {
+            var gameState = GetSession().GameState;
+
+            byte sequence;
+            lock (gameState.AutoRepeatShotsLock)
+            {
+                var tracker = GetAutoRepeatShotTracker(gameState, casterUnit, spellId);
+                sequence = tracker.Sequence;
+
+                int now = Environment.TickCount;
+                tracker.InFlight.RemoveAll(shot => now - shot.Tick > AutoRepeatShotInFlightTimeoutMs);
+                if (hasHitTargets)
+                    tracker.InFlight.Add((sequence, now));
+            }
+
+            return MakeAutoRepeatShotCastId(casterUnit, spellId, sequence);
+        }
+
+        // Called on the damage log, which the legacy server delays by the bolt's flight time and sends
+        // without any cast id: bolts land in the order they were fired, so take the oldest pending one.
+        private WowGuid128 TakeAutoRepeatShotCastId(WowGuid128 casterUnit, uint spellId)
+        {
+            var gameState = GetSession().GameState;
+
+            byte sequence = 0;
+            lock (gameState.AutoRepeatShotsLock)
+            {
+                if (gameState.AutoRepeatShots.TryGetValue(casterUnit, out var tracker) && tracker.SpellId == spellId)
+                {
+                    int now = Environment.TickCount;
+                    tracker.InFlight.RemoveAll(shot => now - shot.Tick > AutoRepeatShotInFlightTimeoutMs);
+                    if (tracker.InFlight.Count > 0)
+                    {
+                        sequence = tracker.InFlight[0].Sequence;
+                        tracker.InFlight.RemoveAt(0);
+                    }
+                    else
+                        sequence = tracker.Sequence;
+                }
+            }
+
+            return MakeAutoRepeatShotCastId(casterUnit, spellId, sequence);
+        }
+
+        // Must be called under AutoRepeatShotsLock.
+        private static AutoRepeatShotTracker GetAutoRepeatShotTracker(GameSessionData gameState, WowGuid128 casterUnit, uint spellId)
+        {
+            if (!gameState.AutoRepeatShots.TryGetValue(casterUnit, out var tracker) || tracker.SpellId != spellId)
+            {
+                tracker = new AutoRepeatShotTracker { SpellId = spellId };
+                gameState.AutoRepeatShots[casterUnit] = tracker;
+            }
+            return tracker;
+        }
+
+        // Sequence 0 yields exactly the plain spell + caster id used for every other cast, so the
+        // first shot of a volley still matches the SpellPrepare handed to the client. The counter
+        // part of a cast guid is 40 bits wide, so the shot number sits above the spell/caster sum.
+        private WowGuid128 MakeAutoRepeatShotCastId(WowGuid128 casterUnit, uint spellId, byte sequence)
+        {
+            return WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId,
+                                     spellId, (ulong)spellId + casterUnit.GetCounter() + ((ulong)sequence << 32));
+        }
+
         SpellCastData HandleSpellStartOrGo(WorldPacket packet, bool isSpellGo)
         {
             SpellCastData dbdata = new SpellCastData();
@@ -758,6 +865,9 @@ namespace HermesProxy.World.Client
             dbdata.SpellID = packet.ReadInt32();
             dbdata.SpellXSpellVisualID = GameData.GetSpellVisual((uint)dbdata.SpellID);
             dbdata.CastID = WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId, (uint)dbdata.SpellID, (ulong)dbdata.SpellID + dbdata.CasterUnit.GetCounter());
+            bool isAutoRepeatShot = GameData.AutoRepeatSpells.Contains((uint)dbdata.SpellID);
+            if (isAutoRepeatShot && !isSpellGo)
+                dbdata.CastID = OpenAutoRepeatShot(dbdata.CasterUnit, (uint)dbdata.SpellID);
 
             if (LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180) && LegacyVersion.RemovedInVersion(ClientVersionBuild.V3_0_2_9056) && !isSpellGo)
                 packet.ReadUInt8(); // cast count
@@ -793,6 +903,11 @@ namespace HermesProxy.World.Client
                     dbdata.MissTargets.Add(missTarget);
                     dbdata.MissStatus.Add(new SpellMissStatus(missType, reflectType));
                 }
+
+                // Same shot as the SMSG_SPELL_START above (cmangos sends one start per auto-repeat
+                // tick); a shot that connects also gets its damage log queued against this id.
+                if (isAutoRepeatShot)
+                    dbdata.CastID = ReleaseAutoRepeatShot(dbdata.CasterUnit, (uint)dbdata.SpellID, dbdata.HitTargets.Count > 0);
             }
 
             var targetFlags = LegacyVersion.AddedInVersion(ClientVersionBuild.V2_0_1_6180) ?
@@ -1141,7 +1256,9 @@ namespace HermesProxy.World.Client
             spell.CasterGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
             spell.SpellID = packet.ReadUInt32();
             spell.SpellXSpellVisualID = GameData.GetSpellVisual(spell.SpellID);
-            spell.CastID = WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId, spell.SpellID, spell.SpellID + spell.CasterGUID.GetCounter());
+            spell.CastID = GameData.AutoRepeatSpells.Contains(spell.SpellID)
+                ? TakeAutoRepeatShotCastId(spell.CasterGUID, spell.SpellID)
+                : WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId, spell.SpellID, spell.SpellID + spell.CasterGUID.GetCounter());
             spell.Damage = packet.ReadInt32();
             spell.OriginalDamage = spell.Damage;
 
