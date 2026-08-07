@@ -665,6 +665,13 @@ namespace HermesProxy.World.Server.Packets
         public InventoryResult Reason;
     }
 
+    class QuestLogFull : ServerPacket
+    {
+        public QuestLogFull() : base(Opcode.SMSG_QUEST_LOG_FULL) { }
+
+        public override void Write() { }
+    }
+
     class QuestGiverInvalidQuest : ServerPacket
     {
         public QuestGiverInvalidQuest() : base(Opcode.SMSG_QUEST_GIVER_INVALID_QUEST) { }

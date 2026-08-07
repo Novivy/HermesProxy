@@ -368,6 +368,12 @@ namespace HermesProxy.World.Client
             SendPacketToClient(quest);
         }
 
+        [PacketHandler(Opcode.SMSG_QUEST_LOG_FULL)]
+        void HandleQuestLogFull(WorldPacket packet)
+        {
+            SendPacketToClient(new QuestLogFull());
+        }
+
         [PacketHandler(Opcode.SMSG_QUEST_GIVER_INVALID_QUEST)]
         void HandleQuestGiverInvalidQuest(WorldPacket packet)
         {
