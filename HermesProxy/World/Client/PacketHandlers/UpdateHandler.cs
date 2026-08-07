@@ -29,6 +29,7 @@ namespace HermesProxy.World.Client
             GetSession().GameState.HoveringUnits.Remove(guid);
             GetSession().GameState.KnownSwimmingMobs.Remove(guid);
             GetSession().GameState.WaterCapableMobs.Remove(guid);
+            GetSession().GameState.LyingUnitsGravityOff.Remove(guid);
             GetSession().GameState.ForcedStealthAnimUnits.Remove(guid);
 
             UpdateObject updateObject = new UpdateObject(GetSession().GameState);
@@ -326,6 +327,7 @@ namespace HermesProxy.World.Client
                 GetSession().GameState.HoveringUnits.Remove(guid);
                 GetSession().GameState.KnownSwimmingMobs.Remove(guid);
                 GetSession().GameState.WaterCapableMobs.Remove(guid);
+                GetSession().GameState.LyingUnitsGravityOff.Remove(guid);
                 GetSession().GameState.ForcedStealthAnimUnits.Remove(guid);
 
                 // If the pet is too far away, sends a SMSG_UPDATE_OBJECT protocol
@@ -1927,6 +1929,16 @@ namespace HermesProxy.World.Client
                 if (UNIT_FIELD_BYTES_1 >= 0 && updateMaskArray[UNIT_FIELD_BYTES_1])
                 {
                     updateData.UnitData.StandState = (byte)(updates[UNIT_FIELD_BYTES_1].UInt32Value & 0xFF);
+
+                    // Lying NPCs (SLEEP / DEAD stand state) are scripted props: the server places them on
+                    // top of a bed, bedroll or corpse pile and never moves them. The 1.12 client rendered
+                    // them at the exact Z the server sent, but the 1.14 client applies gravity/ground-snap
+                    // to created units, and WMO interior doodads (the Triage bunks in Theramore's Foothold
+                    // Citadel) carry no unit collision - so the patient drops straight through the bunk to
+                    // the building floor and is hidden by it. Turning gravity off for the unit makes the
+                    // modern client honor the server Z verbatim, matching 1.12. Creatures only: a lying
+                    // PLAYER is corpse/AFK state and must keep normal physics.
+                    ApplyLyingGravityOverride(guid, (byte)updateData.UnitData.StandState, updateData);
 
                     byte petLoyaltyIndex = (byte)((updates[UNIT_FIELD_BYTES_1].UInt32Value >> 8) & 0xFF);
                     if (petLoyaltyIndex != 238)

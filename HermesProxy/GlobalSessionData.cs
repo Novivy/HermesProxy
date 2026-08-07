@@ -147,6 +147,7 @@ namespace HermesProxy
         // hint only: safe for animation-shaped state (AnimTier=Swim, spline CanSwim), which the 1.14
         // client still gates on liquid, but never for physics.
         public HashSet<WowGuid128> WaterCapableMobs = new HashSet<WowGuid128>();
+        public HashSet<WowGuid128> LyingUnitsGravityOff = new HashSet<WowGuid128>(); // units in a lying stand state (SLEEP/DEAD) that we told the modern client to stop applying gravity to; the 1.14 client ground-snaps created units, which drops scripted NPCs placed on props (Triage patients on their bunks) through the prop and into the floor. 1.12 honored the server Z verbatim
         public HashSet<WowGuid128> ForcedStealthAnimUnits = new HashSet<WowGuid128>(); // units we've pinned to the StealthStand (crouch) idle animation via UNIT_FIELD_STATE_ANIM_ID because the modern 1.14 client won't select it from the creep flag; tracked so we only clear the state anim on units we actually set it on
         public Dictionary<WowGuid64, ushort> ObjectSpawnCount = new Dictionary<WowGuid64, ushort>();
         public HashSet<WowGuid64> DespawnedGameObjects = new();

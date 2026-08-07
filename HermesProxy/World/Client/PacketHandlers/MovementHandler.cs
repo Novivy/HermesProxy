@@ -64,6 +64,67 @@ namespace HermesProxy.World.Client
         // out before a new one is OR'd in, or e.g. Swim|Fly silently reads back as something else.
         private const SplineFlagModern SPLINE_ANIM_TIER_MASK = (SplineFlagModern)0x7;
 
+        // Vanilla stand states. Only the two "lying flat on the floor" ones matter here; the sit
+        // variants anchor the model to a chair the client already places correctly.
+        private const byte UNIT_STAND_STATE_SLEEP = 3;
+        private const byte UNIT_STAND_STATE_DEAD  = 7;
+
+        // Keep a lying NPC at the exact Z the legacy server sent. The 1.12 client positioned units
+        // verbatim; the 1.14 client ground-snaps them, and interior WMO doodads (beds, bedrolls,
+        // tables) carry no unit collision - so a scripted NPC laid on a bunk falls through it and ends
+        // up inside/below the floor mesh, invisible. Quest Triage's patients are the visible case.
+        //
+        // Creatures only - a lying player is corpse/AFK state and must keep normal physics.
+        private void ApplyLyingGravityOverride(WowGuid128 guid, byte standState, ObjectUpdate updateData)
+        {
+            if (guid.GetHighType() != HighGuidType.Creature)
+                return;
+
+            // A real corpse also reports the DEAD stand state, and corpses must keep falling normally
+            // (a mob killed mid-air would otherwise hang there). Only a LIVING unit lying down is the
+            // scripted-prop case. Health is parsed earlier in the same block, so it is already set on a
+            // create and on any update that changed it; otherwise fall back to the cached field.
+            long health = updateData.UnitData.Health ??
+                          GetSession().GameState.GetLegacyFieldValueUInt32(guid, UnitField.UNIT_FIELD_HEALTH);
+
+            var registry = GetSession().GameState.LyingUnitsGravityOff;
+            bool lying = health > 0 &&
+                         (standState == UNIT_STAND_STATE_SLEEP || standState == UNIT_STAND_STATE_DEAD);
+
+            if (lying)
+            {
+                // Add() is false when we already turned gravity off for this unit; BYTES_1 rides along
+                // with plenty of unrelated field changes, so re-sending the packet every time would spam.
+                if (!registry.Add(guid) && updateData.CreateData == null)
+                    return;
+
+                if (updateData.CreateData?.MoveInfo != null)
+                {
+                    // Create block: bake it into the movement info the client builds the unit from,
+                    // so it never gets a frame where gravity applies.
+                    updateData.CreateData.MoveInfo.Flags &= ~(uint)(MovementFlagModern.Falling | MovementFlagModern.FallingFar);
+                    updateData.CreateData.MoveInfo.Flags |= (uint)MovementFlagModern.DisableGravity;
+                    updateData.CreateData.MoveInfo.FallTime = 0;
+                }
+                else
+                {
+                    // Values update (an already-visible NPC lies down): movement flags only travel in
+                    // create blocks, so the state change has to go out as its own spline message.
+                    MoveSplineSetFlag gravityOff = new MoveSplineSetFlag(Opcode.SMSG_MOVE_SPLINE_DISABLE_GRAVITY);
+                    gravityOff.MoverGUID = guid;
+                    SendPacketToClient(gravityOff);
+                }
+            }
+            else if (registry.Remove(guid))
+            {
+                // Stood back up - a healed Triage patient is about to run to the doctor, and it would
+                // run that path through the air if we left gravity off. Hand it back to physics.
+                MoveSplineSetFlag gravityOn = new MoveSplineSetFlag(Opcode.SMSG_MOVE_SPLINE_ENABLE_GRAVITY);
+                gravityOn.MoverGUID = guid;
+                SendPacketToClient(gravityOn);
+            }
+        }
+
         // Handlers for SMSG opcodes coming the legacy world server
         [PacketHandler(Opcode.MSG_MOVE_START_FORWARD)]
         [PacketHandler(Opcode.MSG_MOVE_START_BACKWARD)]
@@ -256,6 +317,7 @@ namespace HermesProxy.World.Client
                 GetSession().GameState.HoveringUnits.Clear();
                 GetSession().GameState.KnownSwimmingMobs.Clear();
                 GetSession().GameState.WaterCapableMobs.Clear();
+                GetSession().GameState.LyingUnitsGravityOff.Clear();
                 GetSession().GameState.ForcedStealthAnimUnits.Clear();
 
                 SendPacketToClient(teleport);
