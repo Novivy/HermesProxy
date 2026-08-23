@@ -520,7 +520,14 @@ namespace HermesProxy.World.Client
                 prepare.ClientCastID = startedNormal.ClientGUID;
                 prepare.ServerCastID = spell.Cast.CastID;
                 SendPacketToClient(prepare);
-                failPending = 1;
+                // Only drop the queued follow-up cast for a real cast-time spell (a stray pre-cast
+                // press). cmangos sends SMSG_SPELL_START for instant spells too, immediately followed
+                // by SMSG_SPELL_GO; for an instant off-GCD chain (e.g. Charge + Defensive Stance, or
+                // Battle Stance + Charge in one macro) the follow-up must survive to flush on that GO.
+                // Channeled spells also report CastTime 0 here but must keep the drop, or the flush
+                // would fire the follow-up on their GO and interrupt the channel.
+                if (spell.Cast.CastTime > 0 || GameData.ChanneledSpells.ContainsKey((uint)spell.Cast.SpellID))
+                    failPending = 1;
             }
             else if (GetSession().GameState.CurrentPetGuid == spell.Cast.CasterUnit &&
                      startedPet != null &&
@@ -534,7 +541,10 @@ namespace HermesProxy.World.Client
                 prepare.ClientCastID = startedPet.ClientGUID;
                 prepare.ServerCastID = spell.Cast.CastID;
                 SendPacketToClient(prepare);
-                failPending = 2;
+                // Instant pet spell: keep the queued follow-up so it flushes on the following GO
+                // (same reasoning as the normal-cast branch above; channels keep the drop).
+                if (spell.Cast.CastTime > 0 || GameData.ChanneledSpells.ContainsKey((uint)spell.Cast.SpellID))
+                    failPending = 2;
             }
 
             if (LegacyVersion.RemovedInVersion(ClientVersionBuild.V2_0_1_6180))
@@ -1462,6 +1472,10 @@ namespace HermesProxy.World.Client
             channel.SpellID = packet.ReadUInt32();
             channel.SpellXSpellVisualID = GameData.GetSpellVisual(channel.SpellID);
             channel.Duration = packet.ReadUInt32();
+            // Remember this spell channels: a channel reports CastTime 0 in SMSG_SPELL_START just like
+            // a true instant, so without this the instant-cast follow-up flush would fire a queued cast
+            // on the channel's SMSG_SPELL_GO and interrupt it.
+            GameData.ChanneledSpells.TryAdd(channel.SpellID, 0);
             SendPacketToClient(channel);
         }
 

@@ -48,6 +48,12 @@ namespace HermesProxy.World
         public static HashSet<uint> NextMeleeSpells = new HashSet<uint>();
         public static HashSet<uint> AutoRepeatSpells = new HashSet<uint>();
         public static HashSet<uint> AuraSpells = new HashSet<uint>();
+        // Legacy spell ids seen entering a channel (MSG_CHANNEL_START). Learned at runtime from the
+        // connected server so it is correct for whatever build/expansion is in use, with no static
+        // data to drift. Used to keep a channeled spell out of the instant-cast follow-up flush
+        // (a channel reports CastTime 0 in SMSG_SPELL_START, same as a true instant). Concurrent:
+        // written from WorldClient threads, read from the same handler; channel-ness is global per build.
+        public static System.Collections.Concurrent.ConcurrentDictionary<uint, byte> ChanneledSpells = new();
         public static Dictionary<uint, int> AuraDurations = new Dictionary<uint, int>();
         public static Dictionary<uint, TaxiPath> TaxiPaths = new Dictionary<uint, TaxiPath>();
         public static int[,] TaxiNodesGraph = new int[250,250];
