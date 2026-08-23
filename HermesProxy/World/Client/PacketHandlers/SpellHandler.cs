@@ -875,7 +875,14 @@ namespace HermesProxy.World.Client
             dbdata.SpellID = packet.ReadInt32();
             dbdata.SpellXSpellVisualID = GameData.GetSpellVisual((uint)dbdata.SpellID);
             dbdata.CastID = WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId, (uint)dbdata.SpellID, (ulong)dbdata.SpellID + dbdata.CasterUnit.GetCounter());
-            bool isAutoRepeatShot = GameData.AutoRepeatSpells.Contains((uint)dbdata.SpellID);
+            // Per-shot cast ids only matter for the local player: the modern client tracks its OWN
+            // in-flight casts by id and holds just one, so overlapping wand bolts stalled. For an
+            // observed remote unit the client does not queue casts that way, and giving each shot a
+            // unique id left the wand casting pose stuck when the remote player moved to cancel - the
+            // legacy server sends neither a SPELL_GO for the interrupted tick nor a per-observer cancel,
+            // so the last unique SPELL_START id never resolved. Keep the plain shared id for others.
+            bool isAutoRepeatShot = GameData.AutoRepeatSpells.Contains((uint)dbdata.SpellID) &&
+                                    dbdata.CasterUnit == GetSession().GameState.CurrentPlayerGuid;
             if (isAutoRepeatShot && !isSpellGo)
                 dbdata.CastID = OpenAutoRepeatShot(dbdata.CasterUnit, (uint)dbdata.SpellID);
 
@@ -1266,7 +1273,8 @@ namespace HermesProxy.World.Client
             spell.CasterGUID = packet.ReadPackedGuid().To128(GetSession().GameState);
             spell.SpellID = packet.ReadUInt32();
             spell.SpellXSpellVisualID = GameData.GetSpellVisual(spell.SpellID);
-            spell.CastID = GameData.AutoRepeatSpells.Contains(spell.SpellID)
+            spell.CastID = GameData.AutoRepeatSpells.Contains(spell.SpellID) &&
+                           spell.CasterGUID == GetSession().GameState.CurrentPlayerGuid
                 ? TakeAutoRepeatShotCastId(spell.CasterGUID, spell.SpellID)
                 : WowGuid128.Create(HighGuidType703.Cast, SpellCastSource.Normal, (uint)GetSession().GameState.CurrentMapId, spell.SpellID, spell.SpellID + spell.CasterGUID.GetCounter());
             spell.Damage = packet.ReadInt32();
