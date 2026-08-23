@@ -451,6 +451,13 @@ namespace HermesProxy.World.Server
             WriteSpellTargets(use.Cast.Target, targetFlags, packet);
             return packet;
         }
+        // A next-melee toggle macro (/cast Heroic Strike + /stopcasting) makes the 1.14 client
+        // fire CMSG_CANCEL_CAST in the SAME frame it queued the swing spell. Vanilla never
+        // cancelled an on-next-swing spell from that stopcasting, so the swing must survive the
+        // first press and only drop on a deliberate later press. Swallow a cancel that lands within
+        // this window of the special being queued; forward anything older as a genuine toggle-off.
+        const int NextMeleeStopcastingSwallowMs = 300;
+
         [PacketHandler(Opcode.CMSG_CANCEL_CAST)]
         void HandleCancelCast(CancelCast cast)
         {
@@ -458,6 +465,24 @@ namespace HermesProxy.World.Server
             // or spells will bug out and glow if spammed.
             if (Settings.ServerSpellDelay > 0)
                 Thread.Sleep(Settings.ServerSpellDelay);
+
+            // Drop the same-frame /stopcasting cancel that would otherwise insta-cancel a just-queued
+            // next-melee swing (e.g. the Heroic Strike toggle macro). See constant above. Only when no
+            // real cast is in progress: if a normal cast exists the cancel is meant for it, so forward.
+            ClientCastRequest special;
+            ClientCastRequest normal;
+            lock (GetSession().GameState.SpellCastLock)
+            {
+                special = GetSession().GameState.CurrentClientSpecialCast;
+                normal = GetSession().GameState.CurrentClientNormalCast;
+            }
+            if (normal == null &&
+                special != null &&
+                GameData.NextMeleeSpells.Contains(special.SpellId) &&
+                Environment.TickCount - special.Timestamp < NextMeleeStopcastingSwallowMs)
+            {
+                return;
+            }
 
             WorldPacket packet = new WorldPacket(Opcode.CMSG_CANCEL_CAST);
             if (LegacyVersion.AddedInVersion(ClientVersionBuild.V3_0_2_9056))
