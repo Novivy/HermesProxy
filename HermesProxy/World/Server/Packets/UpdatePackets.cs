@@ -133,6 +133,16 @@ namespace HermesProxy.World.Server.Packets
             }
             if (GameObjectData != null)
             {
+                // The legacy server omits zero-valued fields from create blocks, so a GameObject in
+                // GO_STATE_ACTIVE (0) reaches us with no state field at all. Left null it also skips
+                // the PercentHealth placeholder below, and then every byte of GAMEOBJECT_BYTES_1 is
+                // zero: the byte writer only marks the field dirty on a change, a freshly allocated
+                // field array already reads zero, and the field never makes it into the packet. The
+                // client is then never told the state and keeps whatever it last knew, which is how
+                // a door opened while the player was out of range stays shut until relog. Absence
+                // means zero here, so say it explicitly.
+                if (GameObjectData.State == null)
+                    GameObjectData.State = 0;
                 if ((GameObjectData.PercentHealth == null) &&
                     (GameObjectData.State != null || GameObjectData.TypeID != null || GameObjectData.ArtKit != null))
                     GameObjectData.PercentHealth = 255;
