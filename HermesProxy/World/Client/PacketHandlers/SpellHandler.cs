@@ -450,14 +450,18 @@ namespace HermesProxy.World.Client
             // SMSG_SPELL_FAILED_OTHER, which on its own does not dismiss the modern nameplate
             // cast bar nor fire COMBAT_LOG_EVENT SPELL_INTERRUPT (so interrupt announces and
             // Plater's "Interrupted" never trigger). Synthesize the modern interrupt log here.
-            // reason 61 = Interrupted (vanilla SPELL_FAILED_OTHER is only sent on interrupt, so
-            // the default reason is 61). Credit the actual interrupter recorded from the interrupt
-            // spell's SMSG_SPELL_GO on this victim; fall back to the local player if none is known.
+            // reason 61 = Interrupted (vanilla SPELL_FAILED_OTHER carries no reason, so 61 is the
+            // default). Credit the actual interrupter recorded from the interrupt spell's
+            // SMSG_SPELL_GO on this victim. The packet is also sent when nobody interrupted anything
+            // (the caster died mid cast, moved, lost line of sight, ...), so with no recorded
+            // interrupter the log goes out with an empty caster: the cast bar is still dismissed but
+            // no one is credited. Never fall back to the local player, that blames us for every
+            // uninterrupted cast stop.
             if (reason == 61 &&
                 casterUnit != GetSession().GameState.CurrentPlayerGuid &&
                 casterUnit != GetSession().GameState.CurrentPetGuid)
             {
-                WowGuid128 interrupter = GetSession().GameState.CurrentPlayerGuid;
+                WowGuid128 interrupter = WowGuid128.Empty;
                 if (GetSession().GameState.RecentInterrupts.TryGetValue(casterUnit, out var record))
                 {
                     GetSession().GameState.RecentInterrupts.Remove(casterUnit);
